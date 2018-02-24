@@ -78,8 +78,15 @@ def template_to_graph(g,tpl,**tags):
       nodes[str(n)] = n
   
   for l in nw.links:
-      g.add_edge(str(nodes[str(l.from_node)]),str(nodes[str(l.to_node)]),
-                 src=l.from_output,dest=to_input)
+      key = (str(nodes[str(l.from_node)]),str(nodes[str(l.to_node)]))
+      if key in g.edges:
+          existing = g.edges[key]
+          existing['src'].append(l.from_output)
+          existing['dest'].append(l.to_input)
+          continue
+
+      g.add_edge(key[0],key[1],
+                 src=[l.from_output],dest=[l.to_input])
 
   return g
 
