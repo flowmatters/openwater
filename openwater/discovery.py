@@ -1,6 +1,7 @@
 
 from . import single, ensemble, lib, nodes
-OW_BIN='/Users/joelrahman/src/projects/openwater'
+import os
+OW_BIN=os.path.join(os.path.expanduser('~'),'src/projects/openwater')
 
 def _exe_path(prog,family='ow'):
   import sys

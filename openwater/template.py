@@ -1,15 +1,27 @@
+import numpy as np
+import pandas as pd
 import networkx as nx
+from functools import reduce
+from . import nodes as node_types
 
+TAG_PROCESS='_process'
+TAG_MODEL='_model'
+TAG_RUN_INDEX='_run_idx'
+TAG_GENERATION='_generation'
+META_TAGS=[TAG_PROCESS,TAG_MODEL,TAG_RUN_INDEX,TAG_GENERATION]
 
 class OWTemplate(object):
   def __init__(self):
     self.nodes = []
     self.links = []
   
-  def add_node(self,model_type=None,name=None,**tags):
+  def add_node(self,model_type=None,name=None,process=None,**tags):
     # if hasattr(node_or_name,'model_type'):
     #   self.nodes.append(node_or_name)
     # else:
+    if process and not TAG_PROCESS in tags:
+        tags[TAG_PROCESS]=process
+
     new_node = OWNode(model_type,name,**tags)
     self.nodes.append(new_node)
     return new_node
@@ -38,14 +50,18 @@ class OWNode(object):
     else:
       self.model_name = model_type
     self.tags = tags
+    self.tags['_model'] = self.model_name
+
     if name:
       self.name = name
     else:
       self.name = self.make_name()
 
   def make_name(self):
-    std_names = ['catchment','model','process','constituent','hru','lu']
+    std_names = ['catchment','model',TAG_PROCESS,'constituent','hru','lu']
     for k in sorted(self.tags.keys()):
+      if k.startswith('_'):continue
+
       if not k in std_names:
         std_names.append(k)
     return '-'.join([str(self.tags.get(k,None)) for k in std_names if k in self.tags])
@@ -66,7 +82,6 @@ class OWLink(object):
 #     self.links = []
 
 #   def add_node(self,name,)
-
 
 def template_to_graph(g,tpl,**tags):
   if not g:
@@ -284,3 +299,227 @@ def compute_simulation_order(graph):
   stages = bring_forward(g,stages)
   stages = push_back_ss(g,stages)
   return stages
+
+def tag_set(nodes):
+    return reduce(lambda a,b: a.union(b),[set(n.keys()) for n in nodes])
+
+def proc_model(node):
+    return '%s/%s'%(node[TAG_PROCESS],node[TAG_MODEL])
+
+def match_model_name(node_name):
+    return g.nodes[node_name][TAG_MODEL]
+    #    return np.string_(re.match(re.compile('.*\(([\w\d]+)\)'),node_name)[1])
+
+def sort_nodes(nodes):
+    '''
+    Sort a group of nodes by relevant criteria
+    
+    (Currently just name - but ultimately by tags in some way!)
+    '''
+    return sorted(nodes)
+
+   
+class ModelGraph(object):
+    def __init__(self,graph,initialise=True):
+        self._graph = graph
+        if initialise:
+            self.initialise()
+
+    def initialise(self):
+        self.order = compute_simulation_order(self._graph)
+        for i,gen in enumerate(self.order):
+            for node in gen:
+                self._graph.nodes[node][TAG_GENERATION]=i
+        self.sequence = flatten(self.order)
+        nodes = self._graph.nodes
+        self.model_names = list({n[TAG_MODEL] for n in self._graph.nodes.values()} )
+
+        proc_models = {proc_model(nodes[n]) for n in nodes}
+
+        node_names_by_process_and_model = {pm:[n for n in nodes if proc_model(nodes[n])==pm] for pm in proc_models}
+        nodes_by_process_and_model = {pm:[nodes[n] for n in proc_nodes] for pm,proc_nodes in node_names_by_process_and_model.items()}
+
+        tags_by_process_and_model = {p:list(tag_set(nodes)-set(META_TAGS)) for p,nodes in nodes_by_process_and_model.items()}
+        print('tags_by_process_and_model',tags_by_process_and_model)
+
+        self.all_tags = set().union(*tags_by_process_and_model.values())
+        print('all_tags',self.all_tags)
+
+        self.distinct_values = {t:sorted(set([nodes[n][t] for n in nodes if t in nodes[n]])) for t in self.all_tags}
+        print(self.distinct_values['constituent'])
+
+        for pm in proc_models:
+            node = nodes_by_process_and_model[pm][0]
+            self.assign_run_indices(node[TAG_PROCESS],node[TAG_MODEL])
+
+    def assign_run_indices(self,proc,model_type):
+        '''
+        Assign run indices to each model run within a given process, p (eg 'rainfall runoff')
+        '''
+        i = 0
+        nodes = self._graph.nodes
+        for gen in self.order:
+            relevant_gen = [n for n in gen if nodes[n][TAG_MODEL]==model_type and nodes[n][TAG_PROCESS]==proc] ### BAD ASSUMPTION!
+            relevant_gen = sort_nodes(relevant_gen)
+
+            for n in relevant_gen:
+                node = nodes[n]
+                node[TAG_RUN_INDEX] = i
+                i += 1
+
+    def write_model(self,h5f):
+        self._write_meta(h5f)
+        self._write_dimensions(h5f)
+        self._write_model_groups(h5f)
+        self._write_links(h5f)
+ 
+    def _flux_number(self,node_name,flux_type,flux_name):
+        node = self._graph.nodes[node_name]
+        
+        model_type = node[TAG_MODEL]
+        desc = getattr(node_types,model_type).description
+        flux_type = flux_type.capitalize()
+        if not flux_type.endswith('s'):
+            flux_type += 's'
+        return desc[flux_type].index(flux_name)
+
+    def _write_meta(self,h5f):
+        meta = h5f.create_group('META')
+        meta.create_dataset('models',data=[n.encode('utf8') for n in self.model_names])
+
+    def _write_dimensions(self,f):
+        dimensions = f.create_group('DIMENSIONS')
+        for t in self.all_tags:
+            vals = self.distinct_values[t]
+            if hasattr(vals[0],'__len__'):
+                vals = [np.string_(v) for v in vals]
+            dimensions.create_dataset(t,data=vals)
+
+    def _map_process(self,node_set):
+        '''
+        For a given model (eg 'GR4J'), organise all model runs
+        by the parameterisation dimensions (eg catchment x hru) and assign indices    
+        '''
+
+        nodes = self._graph.nodes
+        def dim_tags(node_name):
+            node = nodes[node_name]
+            keys = node.keys()
+            return set(keys) - set(META_TAGS)
+
+        dimsets = {frozenset(dim_tags(n)) for n in node_set}
+        assert len(dimsets)==1 # don't support one process having different dimensions
+        # Should at least support attributes (tags that only ever have one value)
+        dimensions = list(dimsets)[0]
+
+        dim_values = {d:sorted({nodes[n][d] for n in node_set}) for d in dimensions}
+        attributes = {d:vals[0] for d,vals in dim_values.items() if len(vals)==1}
+        dimension_values = {d:vals for d,vals in dim_values.items() if len(vals)>1}
+        dimensions = [d for d in dimensions if not d in attributes]
+
+        # dims = tags_by_process[p]
+        # dimensions = [distinct_values[d] for d in dims]
+        shape = tuple([len(dimension_values[d]) for d in dimensions])
+
+        model_instances = np.ones(shape=shape,dtype=np.uint32) * -1
+        for node_name in node_set:
+            node = nodes[node_name]
+
+            loc = tuple([dimension_values[d].index(node[d]) for d in dimensions])
+            if len(loc) < len(shape):
+                print(loc,node)
+            model_instances[loc] = node[TAG_RUN_INDEX]
+
+        return dimension_values, attributes,model_instances
+
+    def _write_model_groups(self,f):
+        models_grp = f.create_group('MODELS')
+        nodes = self._graph.nodes
+
+        models = {nodes[n][TAG_MODEL] for n in nodes}
+        self.model_batches = {}
+        for m in models:
+            model_grp = models_grp.create_group(m)
+
+            model_nodes = [n for n in nodes if nodes[n][TAG_MODEL]==m]
+            processes_for_model = {nodes[n][TAG_PROCESS] for n in model_nodes}
+            assert(len(processes_for_model)==1) # not necessary?
+
+            dims,attributes,instances = self._map_process(model_nodes)
+            ds = model_grp.create_dataset('map',dtype=np.uint32,data=instances,fillvalue=-1)
+
+            # write out model index
+            ds.attrs['PROCESSES']=[np.string_(s) for s in list(processes_for_model)]
+            ds.attrs['DIMS']=[np.string_(d) for d in dims]
+            for attr,val in attributes.items():
+                ds.attrs[attr]=val
+
+            self.model_batches[m] = np.cumsum([len([n for n in gen if nodes[n][TAG_MODEL]==m]) for gen in self.order])
+
+            desc = getattr(node_types,m)
+            if hasattr(desc,'description'):
+                desc = desc.description
+                n_states = len(desc['States']) # Compute, based on parameters...
+                n_params = len(desc['Parameters'])
+                n_inputs = len(desc['Inputs'])
+            else:
+                print('No description for %s'%m)
+                n_states = 3
+                n_params = 4
+                n_inputs = 2
+
+#            batch_counts = [len(mc.get(m,[])) for mc in model_counts_by_generation]
+
+            model_grp.create_dataset('batches',shape=(len(self.order),),dtype=np.uint32,data=self.model_batches[m],fillvalue=-1)
+
+            n_cells = instances.size
+            # Init states....
+            model_grp.create_dataset('states',shape=(n_cells,n_states),dtype=np.float64,fillvalue=np.nan)
+
+            model_grp.create_dataset('parameters',shape=(n_params,n_cells),dtype=np.float64,fillvalue=np.nan)
+
+            n_timesteps = 3650
+            model_grp.create_dataset('inputs',shape=(n_cells,n_inputs,n_timesteps),dtype=np.float64,fillvalue=np.nan)
+
+    def gen_index(self,node):
+        global_idx = node['_run_idx']
+        model_name = node['_model']
+        gen = node['_generation']
+        if gen:
+            start_of_gen = self.model_batches[model_name][gen-1]
+        else:
+            start_of_gen = 0
+        return global_idx - start_of_gen
+
+    def link_table(self):
+        model_lookup = dict([(m,i) for i,m in enumerate(self.model_names)])
+        link_table = []
+
+        for l_from,l_to in self._graph.edges:
+            link_data = self._graph.edges[(l_from,l_to)]
+            for src_var,dest_var in zip(link_data['src'],link_data['dest']):
+                link = {}
+                f_node = self._graph.nodes[l_from]
+                t_node = self._graph.nodes[l_to]
+
+                link['src_generation'] = f_node['_generation']
+                link['src_model'] = model_lookup[f_node['_model']]
+                link['src_node'] = f_node['_run_idx']
+                link['src_gen_node'] = self.gen_index(f_node)
+                link['src_var'] = self._flux_number(l_from,'output',src_var)
+
+                link['dest_generation'] = t_node['_generation']
+                link['dest_model'] = model_lookup[t_node['_model']]
+                link['dest_node'] = t_node['_run_idx']
+                link['dest_gen_node'] = self.gen_index(t_node)
+                link['dest_var'] = self._flux_number(l_to,'input',dest_var)
+                link_table.append(link)
+        link_table = pd.DataFrame(link_table)
+        col_order = ['%s_%s'%(n,c) for n in ['src','dest'] for c in ['generation','model','node','gen_node','var']]
+        link_table = link_table[col_order]
+        sort_order = ['src_generation','src_model','src_gen_node','dest_generation','dest_model','dest_gen_node']
+        return link_table.sort_values(sort_order)
+
+    def _write_links(self,f):
+        table = np.array(self.link_table())
+        f.create_dataset('LINKS',dtype=np.uint32,data=table)

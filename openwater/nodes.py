@@ -1,6 +1,4 @@
 
-LumpedConstituentRouting = 'LumpedConstituentRouting'
-
 
 def _create_model_type(name,description):
   import sys
