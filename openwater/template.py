@@ -327,6 +327,7 @@ def sort_nodes(nodes):
 class ModelGraph(object):
     def __init__(self,graph,initialise=True):
         self._graph = graph
+        self._parameteriser = None
         if initialise:
             self.initialise()
 
@@ -372,12 +373,23 @@ class ModelGraph(object):
                 node[TAG_RUN_INDEX] = i
                 i += 1
 
-    def write_model(self,h5f):
-        self._write_meta(h5f)
-        self._write_dimensions(h5f)
-        self._write_model_groups(h5f)
-        self._write_links(h5f)
- 
+    def write_model(self,f,timesteps=DEFAULT_TIMESTEPS):
+        close = False
+        if hasattr(f,'upper'):
+            import h5py
+            h5f = h5py.File(f,'w')
+            close = True
+        else:
+            h5f = f
+
+        try:
+            self._write_meta(h5f)
+            self._write_dimensions(h5f)
+            self._write_model_groups(h5f,timesteps)
+            self._write_links(h5f)
+        finally:
+            if close: h5f.close()
+
     def _flux_number(self,node_name,flux_type,flux_name):
         node = self._graph.nodes[node_name]
         
@@ -437,7 +449,7 @@ class ModelGraph(object):
 
         return dimension_values, attributes,model_instances
 
-    def _write_model_groups(self,f):
+    def _write_model_groups(self,f,n_timesteps):
         models_grp = f.create_group('MODELS')
         nodes = self._graph.nodes
 
@@ -461,14 +473,15 @@ class ModelGraph(object):
 
             self.model_batches[m] = np.cumsum([len([n for n in gen if nodes[n][TAG_MODEL]==m]) for gen in self.order])
 
-            desc = getattr(node_types,m)
-            if hasattr(desc,'description'):
-                desc = desc.description
+            model_meta = getattr(node_types,m)
+            if hasattr(model_meta,'description'):
+                desc = model_meta.description
                 n_states = len(desc['States']) # Compute, based on parameters...
                 n_params = len(desc['Parameters'])
                 n_inputs = len(desc['Inputs'])
             else:
                 print('No description for %s'%m)
+                desc = None
                 n_states = 3
                 n_params = 4
                 n_inputs = 2
@@ -479,12 +492,15 @@ class ModelGraph(object):
 
             n_cells = instances.size
             # Init states....
-            model_grp.create_dataset('states',shape=(n_cells,n_states),dtype=np.float64,fillvalue=np.nan)
+            model_grp.create_dataset('states',shape=(n_cells,n_states),dtype=np.float64,fillvalue=0)
 
-            model_grp.create_dataset('parameters',shape=(n_params,n_cells),dtype=np.float64,fillvalue=np.nan)
+            model_grp.create_dataset('parameters',shape=(n_params,n_cells),dtype=np.float64,fillvalue=0)
 
-            n_timesteps = 3650
-            model_grp.create_dataset('inputs',shape=(n_cells,n_inputs,n_timesteps),dtype=np.float64,fillvalue=np.nan)
+            model_grp.create_dataset('inputs',shape=(n_cells,n_inputs,n_timesteps),dtype=np.float64,fillvalue=0)
+
+            if (self._parameteriser is not None) and (desc is not None):
+                node_dict = {n:nodes[n] for n in model_nodes}
+                self._parameteriser.parameterise(model_meta,model_grp,instances,dims,node_dict)
 
     def gen_index(self,node):
         global_idx = node['_run_idx']
