@@ -9,6 +9,7 @@ TAG_MODEL='_model'
 TAG_RUN_INDEX='_run_idx'
 TAG_GENERATION='_generation'
 META_TAGS=[TAG_PROCESS,TAG_MODEL,TAG_RUN_INDEX,TAG_GENERATION]
+DEFAULT_TIMESTEPS=365
 
 class OWTemplate(object):
   def __init__(self):
@@ -42,6 +43,7 @@ class OWTemplate(object):
       new_link = res.add_link(OWLink(new_from,l.from_output,new_to,l.to_input))
 
     return res
+
 class OWNode(object):
   def __init__(self,model_type,name=None,**tags):
     self.model_type = model_type
@@ -50,7 +52,7 @@ class OWNode(object):
     else:
       self.model_name = model_type
     self.tags = tags
-    self.tags['_model'] = self.model_name
+    self.tags[TAG_MODEL] = self.model_name
 
     if name:
       self.name = name
@@ -262,7 +264,7 @@ def push_back_ss(g,stages):
     stage_nodes = list(set(stages[i]).union(set(to_add[i])) - set(to_remove[i]))
     stages[i] = stage_nodes
     nodes_downstream += len(stage_nodes)
-    print(i)
+    #print(i)
     for n in stage_nodes:
       if (n in visited) and visited[n]==i:
         # Node visited as an ancestor and not moved, so no reason to look further at ancestors
