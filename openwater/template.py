@@ -195,13 +195,11 @@ def latest_possible(g,n,n_stages,node_stages):
     current = node_stages[n]
     lowest = n_stages
 
-#    print(current)
     descendants = descendants_cached(g,n)
     for d in descendants:
         descendent_stage = node_stages[d]
         if descendent_stage == 0:
             print(n,d,n_stages,current,descendent_stage,lowest)
-#        print(d,descendent_stage)
         if descendent_stage == (current+1):
             return current
         if descendent_stage < lowest:
@@ -264,7 +262,6 @@ def push_back_ss(g,stages):
     stage_nodes = list(set(stages[i]).union(set(to_add[i])) - set(to_remove[i]))
     stages[i] = stage_nodes
     nodes_downstream += len(stage_nodes)
-    #print(i)
     for n in stage_nodes:
       if (n in visited) and visited[n]==i:
         # Node visited as an ancestor and not moved, so no reason to look further at ancestors
@@ -298,8 +295,14 @@ def compute_simulation_order(graph):
   global ancestors_by_node
   ancestors_by_node,by_node_type_gen,node_gen = group_run_order(g)
   stages = assign_stages(sequential_order,node_gen,by_node_type_gen)
-  stages = bring_forward(g,stages)
-  stages = push_back_ss(g,stages)
+  n_stages = len(stages)
+  new_n_stages = 0
+  while new_n_stages<n_stages:
+    n_stages = len(stages)
+    stages = bring_forward(g,stages)
+    stages = push_back_ss(g,stages)
+    new_n_stages = len(stages)
+
   return stages
 
 def tag_set(nodes):
