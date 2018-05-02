@@ -40,33 +40,39 @@ class SemiLumpedCatchment(object):
     routing_node = template.add_node(self.routing,process='FlowRouting')
     transport = {}
     for con in self.constituents:
-        # transport_node = 'Transport-%s'%(con)
-        transport_node = template.add_node(self.model_for(self.transport,con),process='ConstituentRouting',constituent=con)
-        template.add_link(OWLink(routing_node,'outflow',transport_node,'outflow'))
-        transport[con]=transport_node
+      # transport_node = 'Transport-%s'%(con)
+      transport_node = template.add_node(self.model_for(self.transport,con),process='ConstituentRouting',constituent=con)
+      template.add_link(OWLink(routing_node,'outflow',transport_node,'outflow'))
+      transport[con]=transport_node
 
+
+    runoff = {}
     for hru in self.hrus:
-        runoff_node = template.add_node(self.model_for(self.rr,hru),process='RR',hru=hru)
-        runoff_scale_node = template.add_node(n.DepthToRate,process='ArealScale',hru=hru,component='Runoff')
-        quickflow_scale_node = template.add_node(n.DepthToRate,process='ArealScale',hru=hru,component='Quickflow')
-        baseflow_scale_node = template.add_node(n.DepthToRate,process='ArealScale',hru=hru,component='Baseflow')
+      runoff_node = template.add_node(self.model_for(self.rr,hru),process='RR',hru=hru)
+      runoff[hru] = runoff_node
 
-        template.add_link(OWLink(runoff_node,'runoff',runoff_scale_node,'input'))      
-        template.add_link(OWLink(runoff_node,'quickflow',quickflow_scale_node,'input'))      
-        template.add_link(OWLink(runoff_node,'baseflow',baseflow_scale_node,'input'))      
+    for cgu in self.cgus:
+      runoff_node = runoff[self.cgu_hrus[cgu]]
 
-        template.add_link(OWLink(runoff_scale_node,'outflow',routing_node,'lateral'))
+      runoff_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Runoff')
+      quickflow_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Quickflow')
+      baseflow_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Baseflow')
 
-        for con in self.constituents:
-            # transport_node = 'Transport-%s'%(con)
-            transport_node = transport[con]
-            template.add_link(OWLink(runoff_scale_node,'outflow',transport_node,'inflow'))
-            for cgu in [cgu for cgu,h in self.cgu_hrus.items() if h==hru]:
-                #gen_node = 'Generation-%s-%s'%(con,lu)
-                gen_node = template.add_node(self.model_for(self.cg,con,cgu),process='ConstituentGeneration',constituent=con,lu=cgu)
-                template.add_link(OWLink(quickflow_scale_node,'outflow',gen_node,'quickflow'))
-                template.add_link(OWLink(baseflow_scale_node,'outflow',gen_node,'baseflow'))
-                template.add_link(OWLink(gen_node,'totalLoad',transport_node,'lateralLoad'))
+      template.add_link(OWLink(runoff_node,'runoff',runoff_scale_node,'input'))      
+      template.add_link(OWLink(runoff_node,'quickflow',quickflow_scale_node,'input'))      
+      template.add_link(OWLink(runoff_node,'baseflow',baseflow_scale_node,'input'))      
+
+      template.add_link(OWLink(runoff_scale_node,'outflow',routing_node,'lateral'))
+
+      for con in self.constituents:
+        transport_node = transport[con]
+        # transport_node = 'Transport-%s'%(con)
+        #gen_node = 'Generation-%s-%s'%(con,lu)
+        gen_node = template.add_node(self.model_for(self.cg,con,cgu),process='ConstituentGeneration',constituent=con,lu=cgu)
+        template.add_link(OWLink(quickflow_scale_node,'outflow',gen_node,'quickflow'))
+        template.add_link(OWLink(baseflow_scale_node,'outflow',gen_node,'baseflow'))
+        template.add_link(OWLink(gen_node,'totalLoad',transport_node,'lateralLoad'))
+        template.add_link(OWLink(runoff_scale_node,'outflow',transport_node,'inflow'))
 
     return template
   
