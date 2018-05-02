@@ -2,9 +2,16 @@
 from . import nodes as node_types
 import pandas as pd
 
-agg_fns = {
-    'mean':lambda a: a.mean(axis=0)
+temporal_agg_fns = {
+  'sum':lambda a: a.sum(axis=1),
+  'mean':lambda a: a.mean(axis=1)
 }
+
+agg_fns = {
+    'mean':lambda a: a.mean(axis=0),
+    'sum':lambda a: a.sum(axis=0)
+}
+
 class OpenwaterResults(object):
   def  __init__(self,model,res_file,time_period=None):
     self.model = model
@@ -12,15 +19,49 @@ class OpenwaterResults(object):
     self.time_period = time_period
     self._dimensions={}
 
-  def _time_series(self,model,dataset,var_idx,columns,aggregator=None,**kwargs):
+  def dim(self,dim):
+    if not dim in self._dimensions:
+      vals = list(self.model['/DIMENSIONS'][dim][...])
+      conv = lambda v: v.decode('utf-8') if hasattr(v,'decode') else v
+      vals = [conv(v) for v in vals]
+      self._dimensions[dim] = vals
+
+    return self._dimensions[dim]
+
+  def _retrieve_all(self,model,variable):
+    desc = getattr(node_types,model)
+    is_input = variable in desc.description['Inputs']
+
+    grp_name = '/MODELS/%s'%model
+    out_grp = self.results[grp_name]
+    in_grp = self.model[grp_name]
+    
+    if is_input:
+      var_idx = desc.description['Inputs'].index(variable)
+      if 'inputs' in out_grp:
+        dataset = out_grp['inputs']
+      else:
+        dataset = in_grp['inputs']
+    else:
+      var_idx = desc.description['Outputs'].index(variable)
+      dataset = out_grp['outputs']
+
     data = dataset[:,var_idx,:]
     assert len(data.shape)==2
+    return data
 
+  def _map_runs(self,model):
     map_grp = '/MODELS/%s/map'%model
     dim_names = self.dims_for_model(model)
     dims = {d:self.dim(d) for d in dim_names}
 
     run_map = self.model[map_grp][...]
+    return dim_names, dims, run_map
+
+  def time_series(self,model,variable,columns,aggregator=None,**kwargs):
+    data = self._retrieve_all(model,variable)
+    dim_names, dims, run_map = self._map_runs(model)
+
     slices = [slice(None,None,None) for _ in dim_names]
     for dim_name,dim_value in kwargs.items():
       dim_num = dim_names.index(dim_name)
@@ -42,34 +83,40 @@ class OpenwaterResults(object):
         all_sequences[col_name] = agg_fns[aggregator or 'mean'](col_data)
     return pd.DataFrame(all_sequences,index=self.time_period)
 
-  def dim(self,dim):
-    if not dim in self._dimensions:
-      vals = list(self.model['/DIMENSIONS'][dim][...])
-      conv = lambda v: v.decode('utf-8') if hasattr(v,'decode') else v
-      vals = [conv(v) for v in vals]
-      self._dimensions[dim] = vals
+  def table(self,model,variable,rows,columns,temporal_aggregator='mean',aggregator=None,**kwargs):
+    data = self._retrieve_all(model,variable)
+    dim_names, dims, run_map = self._map_runs(model)
+    slices = [slice(None,None,None) for _ in dim_names]
 
-    return self._dimensions[dim]
+    data = temporal_agg_fns[temporal_aggregator](data)
+    column_names = dims[columns]
+    row_names = dims[rows]
 
-  def time_series(self,model,variable,columns,aggregator=None,**kwargs):
+    col_dim = dim_names.index(columns)
+    row_dim = dim_names.index(rows)
+
+    table_data = {}
+    for i,col_name in enumerate(column_names):
+      col_data = []
+      for j,_ in enumerate(row_names):
+        current_slices = slices[:]
+        current_slices[col_dim] = i
+        current_slices[row_dim] = j
+        run_indices = run_map[tuple(current_slices)].flatten()
+        cell_data = data[run_indices]
+        if cell_data.shape[0]==1:
+          col_data.append(cell_data[0])
+        else:
+          col_data.append(agg_fns[aggregator or 'mean'](cell_data))
+      table_data[col_name] = col_data
+    return pd.DataFrame(table_data,index=row_names)
+
+  def models(self):
+    return list(self.model['/MODELS'].keys())
+
+  def variables_for(self,model):
     desc = getattr(node_types,model)
-    is_input = variable in desc.description['Inputs']
-
-    grp_name = '/MODELS/%s'%model
-    out_grp = self.results[grp_name]
-    in_grp = self.model[grp_name]
-    
-    if is_input:
-      var_idx = desc.description['Inputs'].index(variable)
-      if 'inputs' in out_grp:
-        dataset = out_grp['inputs']
-      else:
-        dataset = in_grp['inputs']
-    else:
-      var_idx = desc.description['Outputs'].index(variable)
-      dataset = out_grp['outputs']
-
-    return self._time_series(model,dataset,var_idx,columns,aggregator,**kwargs)
+    return desc.description['Inputs'] + desc.description['Outputs']
 
   def dims_for_model(self,model):
     map_grp = '/MODELS/%s/map'%model
