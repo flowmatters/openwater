@@ -45,7 +45,6 @@ class SemiLumpedCatchment(object):
       template.add_link(OWLink(routing_node,'outflow',transport_node,'outflow'))
       transport[con]=transport_node
 
-
     runoff = {}
     for hru in self.hrus:
       runoff_node = template.add_node(self.model_for(self.rr,hru),process='RR',hru=hru)
@@ -65,12 +64,11 @@ class SemiLumpedCatchment(object):
       template.add_link(OWLink(runoff_scale_node,'outflow',routing_node,'lateral'))
 
       for con in self.constituents:
-        transport_node = transport[con]
-        # transport_node = 'Transport-%s'%(con)
-        #gen_node = 'Generation-%s-%s'%(con,lu)
-        gen_node = template.add_node(self.model_for(self.cg,con,cgu),process='ConstituentGeneration',constituent=con,lu=cgu)
+        gen_node = template.add_node(self.model_for(self.cg,con,cgu),process='ConstituentGeneration',constituent=con,cgu=cgu)
         template.add_link(OWLink(quickflow_scale_node,'outflow',gen_node,'quickflow'))
         template.add_link(OWLink(baseflow_scale_node,'outflow',gen_node,'baseflow'))
+
+        transport_node = transport[con]
         template.add_link(OWLink(gen_node,'totalLoad',transport_node,'lateralLoad'))
         template.add_link(OWLink(runoff_scale_node,'outflow',transport_node,'inflow'))
 
@@ -80,7 +78,7 @@ class SemiLumpedCatchment(object):
     linkages = [('%d-FlowRouting ('+self.routing.name+')','outflow','inflow')] + \
                [(('%%d-ConstituentRouting-%s ('+self.transport.name+')')%c,'outflowLoad','inflowLoad') for c in self.constituents]
     for (lt,src,dest) in linkages:
-        dest_node = lt%upstream
-        src_node = lt%downstream#'%d/%s'%(to_cat,lt)
+        src_node = lt%upstream
+        dest_node = lt%downstream#'%d/%s'%(to_cat,lt)
         graph.add_edge(src_node,dest_node,src=[src],dest=[dest])
 
