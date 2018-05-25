@@ -5,6 +5,9 @@ class Parameteriser(object):
     def __init__(self):
         self._parameterisers = []
 
+    def append(self,parameteriser):
+        self._parameterisers.append(parameteriser)
+
     def parameterise(self,model_desc,grp,instances,dims,nodes):
         for p in self._parameterisers:
             p.parameterise(model_desc,grp,instances,dims,nodes)
@@ -55,19 +58,54 @@ class DataframeInputs(object):
             i += 1
 
 class ParameterTableAssignment(object):
-    def __init__(self,df,column_dim,row_dim,model='DepthToRate',parameter='area'):
+    '''
+    Parameterise OpenWater models from a DataFrame.
+
+
+    '''
+    def __init__(self,df,model,parameter=None,column_dim=None,row_dim=None,dim_columns=None):
         self.df = df
         self.column_dim = column_dim
         self.row_dim = row_dim
         self.model = model
         self.parameter = parameter
+        self.dim_columns = dim_columns
 
     def parameterise(self,model_desc,grp,instances,dims,nodes):
         if model_desc.name != self.model:
             return
+
+        print('Applying parameter table to %s'%model_desc.name)
+
+        if None in [self.column_dim,self.row_dim,self.parameter is None]:
+           self._parameterise_nd(model_desc,grp,instances,dims,nodes)
+        else:
+            self._parameterise_2d(model_desc,grp,instances,dims,nodes)
+
+    def _parameterise_nd(self,model_desc,grp,instances,dims,nodes):
+        param_names = [p['Name'] for p in model_desc.description['Parameters']]
+        param_data = {p:np.zeros(instances.size,dtype='float64') for p in param_names if p in self.df.columns}
+
+        for _,node in nodes.items():
+            subset = self.df
+            for dim in dims.keys():
+                subset = subset[subset[dim]==node[dim]]
+            assert len(subset)==1
+
+            run_idx = node['_run_idx']
+            for p,arr in param_data.items():
+                arr[run_idx] = subset[p]
+
+        for i,p in enumerate(param_names):
+            if not p in param_data:
+                print('No parameters for %s'%p)
+                continue
+            print('Applying parameters for %s'%p)
+            grp['parameters'][i,:]=param_data[p]
+
+    def _parameterise_2d(self,model_desc,grp,instances,dims,nodes):
         param_idx = [i for i,p in enumerate(model_desc.description['Parameters']) if p['Name']==self.parameter][0]
         print(param_idx)
-        print(model_desc.description)
         param_data = np.zeros(instances.size,dtype='float64')
         for _,node in nodes.items():
             run_idx = node['_run_idx']
