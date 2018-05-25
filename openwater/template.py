@@ -123,11 +123,11 @@ def group_run_order(g):
         if not mt in by_node_type_gen:
             by_node_type_gen[mt] = {}
     
-        n_ancestors_of_type = len([a for a in ancestors if model_type(a)==mt])
-        if not n_ancestors_of_type in by_node_type_gen[mt]:
-            by_node_type_gen[mt][n_ancestors_of_type] = []
-        by_node_type_gen[mt][n_ancestors_of_type].append(n)
-        node_gen[n]=n_ancestors_of_type
+        n_ancestors = len(ancestors)
+        if not n_ancestors in by_node_type_gen[mt]:
+            by_node_type_gen[mt][n_ancestors] = []
+        by_node_type_gen[mt][n_ancestors].append(n)
+        node_gen[n]=n_ancestors
     return ancestors_by_node,by_node_type_gen,node_gen
 
 def assign_stages(order,node_gen,by_node_type_gen):
@@ -140,7 +140,10 @@ def assign_stages(order,node_gen,by_node_type_gen):
         gen = node_gen[n]
         mt = model_type(n)
         others = by_node_type_gen[mt][gen]
-        stages.append(others)
+        while len(stages) <= gen:
+            stages.append([])
+
+        stages[gen] += others
         for o in others: done[o]=i
         i += 1
     return stages
@@ -295,6 +298,8 @@ def compute_simulation_order(graph):
   global ancestors_by_node
   ancestors_by_node,by_node_type_gen,node_gen = group_run_order(g)
   stages = assign_stages(sequential_order,node_gen,by_node_type_gen)
+  stages = [s for s in stages if len(s)]
+
   n_stages = len(stages)
   new_n_stages = 0
   while new_n_stages<n_stages:
