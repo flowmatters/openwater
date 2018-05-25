@@ -351,13 +351,8 @@ class ModelGraph(object):
         nodes_by_process_and_model = {pm:[nodes[n] for n in proc_nodes] for pm,proc_nodes in node_names_by_process_and_model.items()}
 
         tags_by_process_and_model = {p:list(tag_set(nodes)-set(META_TAGS)) for p,nodes in nodes_by_process_and_model.items()}
-        print('tags_by_process_and_model',tags_by_process_and_model)
-
         self.all_tags = set().union(*tags_by_process_and_model.values())
-        print('all_tags',self.all_tags)
-
         self.distinct_values = {t:sorted(set([nodes[n][t] for n in nodes if t in nodes[n]])) for t in self.all_tags}
-        print(self.distinct_values['constituent'])
 
         for pm in proc_models:
             node = nodes_by_process_and_model[pm][0]

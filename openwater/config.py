@@ -98,7 +98,7 @@ class ParameterTableAssignment(object):
 
         for i,p in enumerate(param_names):
             if not p in param_data:
-                print('No parameters for %s'%p)
+                print('--> No parameters for %s'%p)
                 continue
             print('Applying parameters for %s'%p)
             grp['parameters'][i,:]=param_data[p]
