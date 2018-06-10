@@ -108,6 +108,17 @@ def template_to_graph(g,tpl,**tags):
 
   return g
 
+def node_matches(n,**kwargs):
+    for k,v in kwargs.items():
+        if not k in n:
+            return False
+        if n[k]!=v:
+            return False
+    return True
+
+def match_nodes(g,**kwargs):
+    return [name for name,node in g.nodes.items() if node_matches(node,**kwargs)]
+
 def model_type(n):
     return str(n).split('(')[1][:-1]
 
