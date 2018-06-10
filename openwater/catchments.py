@@ -75,10 +75,50 @@ class SemiLumpedCatchment(object):
     return template
   
   def link_catchments(self,graph,upstream,downstream):
-    linkages = [('%d-FlowRouting ('+self.routing.name+')','outflow','inflow')] + \
-               [(('%%d-ConstituentRouting-%s ('+self.transport.name+')')%c,'outflowLoad','inflowLoad') for c in self.constituents]
+    linkages = [('%s-FlowRouting ('+self.routing.name+')','outflow','inflow')] + \
+               [(('%%s-ConstituentRouting-%s ('+self.transport.name+')')%c,'outflowLoad','inflowLoad') for c in self.constituents]
     for (lt,src,dest) in linkages:
-        src_node = lt%upstream
-        dest_node = lt%downstream#'%d/%s'%(to_cat,lt)
+        src_node = lt%(str(upstream))
+        dest_node = lt%(str(downstream))#'%d/%s'%(to_cat,lt)
         graph.add_edge(src_node,dest_node,src=[src],dest=[dest])
 
+
+def delineate(dem,threshold,fill_pits=False):
+  '''
+  Generate catchment boundaries and stream network for use in Openwater, using TauDEM.
+
+  Returns:
+
+  * tree, waterhseds (polygons), streams, coords, order
+  '''
+  import taudem as td
+  import rasterio as rio
+  import numpy as np
+  import pandas as pd
+
+  transform = rio.open(dem).transform
+  if fill_pits:
+    filled = td.pitremove(dem)
+  else:
+    filled = dem
+  d8p, d8s = td.d8flowdir(filled)
+  d8ua = td.aread8(d8p,nc=True,geotransform=transform)
+  d8streams = d8ua > threshold
+  d8streams = d8streams.astype('i')
+  tree, watersheds, streams, coords, order = td.streamnet(d8p,filled,d8ua,d8streams,geotransform=transform)
+  watersheds_poly = td.utils.to_polygons(watersheds,transform=transform)
+  watersheds_poly = watersheds_poly.dissolve('GRIDCODE').reset_index()
+
+  pairs = list(zip(*np.unique(watersheds,return_counts=True)))
+  pairs = pd.DataFrame(pairs,columns=['WSNO','CellCount'])
+  pairs = pairs[pairs.WSNO>=0]
+  pairs = pairs.set_index('WSNO')
+  CELL_SIZE = 2
+  CELL_AREA = CELL_SIZE**2
+  pairs['CellCountArea'] = pairs['CellCount'] * CELL_AREA   
+
+  streams['LocalArea'] = streams['DSContArea'] -  streams['USContArea']
+  streams['LocalAreaKm'] = streams['LocalArea'] * 1e-6
+  streams = streams.join(pairs,on='WSNO',how='inner')
+
+  return tree, watersheds_poly, streams, coords, order
