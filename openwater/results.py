@@ -59,6 +59,21 @@ class OpenwaterResults(object):
     return dim_names, dims, run_map
 
   def time_series(self,model,variable,columns,aggregator=None,**kwargs):
+    '''
+    Return a table (DataFrame) of time series results from the model.
+
+    Parameters:
+
+    * model - the model of interest
+    * variable - a variable on the model, either an input or an output
+    * columns - a dimension of the model to use as the columns of the DataFrame
+    * aggregator - a function name (string) to apply when more than one data series matches a particular column (eg 'mean')
+    * **kwargs - used to specify other dimensions to filter by
+
+    For aggregator, see agg_fns.keys()
+
+    For dimensions (row, columns and kwargs), see dims_for_model
+    '''
     data = self._retrieve_all(model,variable)
     dim_names, dims, run_map = self._map_runs(model)
 
@@ -84,6 +99,25 @@ class OpenwaterResults(object):
     return pd.DataFrame(all_sequences,index=self.time_period)
 
   def table(self,model,variable,rows,columns,temporal_aggregator='mean',aggregator=None,**kwargs):
+    '''
+    Return a table (DataFrame) of aggregated model results from the model.
+
+    Parameters:
+
+    * model - the model of interest
+    * variable - a variable on the model, either an input or an output
+    * row - a dimension of the model to use as the rows of the DataFrame
+    * columns - a dimension of the model to use as the columns of the DataFrame
+    * temporal_aggregator - a function name (string) to reduce the timeseries results to a single value (default='mean')
+    * aggregator - a function name (string) to apply when more than one data series matches a particular row/column (eg 'mean')
+    * **kwargs - used to specify other dimensions to filter by
+
+    For temporal_aggregator, see temporal_agg_fns.keys()
+
+    For aggregator, see agg_fns.keys()
+
+    For dimensions (row, columns and kwargs), see dims_for_model
+    '''
     data = self._retrieve_all(model,variable)
     dim_names, dims, run_map = self._map_runs(model)
     slices = [slice(None,None,None) for _ in dim_names]
