@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pandas as pd
 import networkx as nx
@@ -546,3 +547,12 @@ class ModelGraph(object):
     def _write_links(self,f):
         table = np.array(self.link_table())
         f.create_dataset('LINKS',dtype=np.uint32,data=table)
+
+def run_simulation(model,output='model_outputs.h5',overwrite=False):
+    import openwater.discovery
+    cmd = '%s/ow-sim'%openwater.discovery.OW_BIN
+    if overwrite:
+        cmd += ' -overwrite'
+    cmd = '%s %s %s'%(cmd,model,output)
+    res = os.system(cmd)
+    return res
