@@ -122,3 +122,17 @@ def delineate(dem,threshold,fill_pits=False):
   streams = streams.join(pairs,on='WSNO',how='inner')
 
   return tree, watersheds_poly, streams, coords, order
+
+def build_catchment_graph(model_structure,catchments):
+  g = None
+  tpl =  model_structure.get_template()
+  for wsno in list(catchments.WSNO):
+    g = templating.template_to_graph(g,tpl,catchment=wsno)
+
+  for i,row in catchments.iterrows():
+    src = row.WSNO
+    dest = row.DSLINKNO
+    if dest < 0: continue
+    model_structure.link_catchments(g,src,dest)
+
+  return templating.ModelGraph(g)
