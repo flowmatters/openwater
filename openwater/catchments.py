@@ -9,6 +9,7 @@ Includes:
 '''
 from openwater import OWTemplate, OWLink
 import openwater.nodes as n
+import openwater.template as templating
 
 
 # Need:
@@ -34,28 +35,29 @@ class SemiLumpedCatchment(object):
       return provider[args[0]]
     return provider
 
-  def get_template(self):
+  def get_template(self,**kwargs):
+    tag_values = list(kwargs.values())
     template = OWTemplate()
 
-    routing_node = template.add_node(self.routing,process='FlowRouting')
+    routing_node = template.add_node(self.routing,process='FlowRouting',**kwargs)
     transport = {}
     for con in self.constituents:
       # transport_node = 'Transport-%s'%(con)
-      transport_node = template.add_node(self.model_for(self.transport,con),process='ConstituentRouting',constituent=con)
+      transport_node = template.add_node(self.model_for(self.transport,con,*tag_values),process='ConstituentRouting',constituent=con,**kwargs)
       template.add_link(OWLink(routing_node,'outflow',transport_node,'outflow'))
       transport[con]=transport_node
 
     runoff = {}
     for hru in self.hrus:
-      runoff_node = template.add_node(self.model_for(self.rr,hru),process='RR',hru=hru)
+      runoff_node = template.add_node(self.model_for(self.rr,hru,*tag_values),process='RR',hru=hru,**kwargs)
       runoff[hru] = runoff_node
 
     for cgu in self.cgus:
       runoff_node = runoff[self.cgu_hrus[cgu]]
 
-      runoff_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Runoff')
-      quickflow_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Quickflow')
-      baseflow_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Baseflow')
+      runoff_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Runoff',**kwargs)
+      quickflow_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Quickflow',**kwargs)
+      baseflow_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Baseflow',**kwargs)
 
       template.add_link(OWLink(runoff_node,'runoff',runoff_scale_node,'input'))      
       template.add_link(OWLink(runoff_node,'quickflow',quickflow_scale_node,'input'))      
@@ -64,7 +66,7 @@ class SemiLumpedCatchment(object):
       template.add_link(OWLink(runoff_scale_node,'outflow',routing_node,'lateral'))
 
       for con in self.constituents:
-        gen_node = template.add_node(self.model_for(self.cg,con,cgu),process='ConstituentGeneration',constituent=con,cgu=cgu)
+        gen_node = template.add_node(self.model_for(self.cg,con,cgu,*tag_values),process='ConstituentGeneration',constituent=con,cgu=cgu,**kwargs)
         template.add_link(OWLink(quickflow_scale_node,'outflow',gen_node,'quickflow'))
         template.add_link(OWLink(baseflow_scale_node,'outflow',gen_node,'baseflow'))
 
