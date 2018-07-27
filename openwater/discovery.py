@@ -36,6 +36,7 @@ def _make_model_doc(func,description):
   params_doc = _DOC_SEP.join(['%s: Mode; parameter (default: %f)'%(p['Name'],p['Default']) for p in description['Parameters']])
   outputs_doc = _DOC_SEP.join(['%s : Output timeseries'%o for o in description['Outputs']])
   func.__doc__ = _DOC_TEMPLATE%(inputs_doc,params_doc,outputs_doc)
+  func.__output_names__ = description['Outputs']
 
 
 def _collect_arguments(description,args,kwargs):
