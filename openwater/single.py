@@ -50,7 +50,6 @@ def _create_model_func(name,description):
     return out,err
 
   model_func.__name__ = name
-
   _make_model_doc(model_func,description)
 
   setattr(thismodule,name,model_func)
