@@ -54,19 +54,25 @@ def _collect_arguments(description,args,kwargs):
   outputs=[[] for _ in description['Outputs']]
 
   n_in = len(description['Inputs'])
+  n_pa = len(description['Parameters'])
   for i,arg in enumerate(args):
     if i < n_in:
       inputs[i] = list(arg)
-    else:
+    elif i < (n_in+n_pa):
       params[i-n_in] = arg
+    else:
+      states[i-n_in-n_pa] = arg
 
   for p,v in kwargs.items():
     if p in description['Inputs']:
       input_i = description['Inputs'].index(p)
       inputs[input_i] = v
-    else:
+    elif p in param_names:
       param_i = param_names.index(p) # TODO
       params[param_i] = v
+    else:
+      state_i = description['States'].index(p)
+      states[state_i] = v
 
   return inputs, params, states, outputs
 
