@@ -26,16 +26,22 @@ _DOC_TEMPLATE='''
 Function parameters:
   * %s
   * %s
+  * %s
 
 Returns
   * %s
 '''
 
-def _make_model_doc(func,description):
+def _make_model_doc(func,description,return_states=None):
   inputs_doc = _DOC_SEP.join(['%s: Input timeseries (default: zero length)'%i for i in description['Inputs']])
   params_doc = _DOC_SEP.join(['%s: Mode; parameter (default: %f)'%(p['Name'],p['Default']) for p in description['Parameters']])
-  outputs_doc = _DOC_SEP.join(['%s : Output timeseries'%o for o in description['Outputs']])
-  func.__doc__ = _DOC_TEMPLATE%(inputs_doc,params_doc,outputs_doc)
+  states_doc = _DOC_SEP.join(['%s: Initial state variable (default: 0.0)'%s for s in description['States']])
+  returns = ['%s : Output timeseries'%o for o in description['Outputs']]
+  if return_states:
+    returns += ['%s: %s'%(s,return_states) for s in description['States']]
+
+  outputs_doc = _DOC_SEP.join(returns)
+  func.__doc__ = _DOC_TEMPLATE%(inputs_doc,params_doc,states_doc,outputs_doc)
   func.__output_names__ = description['Outputs']
 
 
