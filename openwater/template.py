@@ -12,11 +12,52 @@ TAG_GENERATION='_generation'
 META_TAGS=[TAG_PROCESS,TAG_MODEL,TAG_RUN_INDEX,TAG_GENERATION]
 DEFAULT_TIMESTEPS=365
 
+def connections_match(o,i):
+  o_node,_,o_alias,o_tags = o
+  i_node,_,i_alias,i_tags = i
+
+  if o_alias != i_alias:
+#    print('aliases do not match')
+    return False
+  o_tags = o_tags.copy()
+  o_tags.update(o_node.tags)
+  i_tags = i_tags.copy()
+  i_tags.update(i_node.tags)
+  common_keys = list(set(o_tags.keys()).intersection(i_tags.keys()))
+  for ck in common_keys:
+    if ck in ['_process','_model']: continue
+    if o_tags[ck] != i_tags[ck]:
+#      print('common key (%s) does not match (%s vs %s)'%(ck,o_node.tags[ck],i_node.tags[ck]))
+      return False
+
+  return True
+
 class OWTemplate(object):
-  def __init__(self):
+  def __init__(self,lbl=''):
+    self.label=lbl
     self.nodes = []
     self.links = []
-  
+    self.nested = []
+    self.inputs = []
+    self.outputs = []
+
+  def define_input(self,node,name=None,alias=None,**kwargs):
+    if name is None:
+      # Would be nice to have a short hand to define every input of this
+      # node as an input to the graph (and similarly every output of a node
+      # as an output of the graph
+      # But the node currently stores the model name)
+      pass
+
+    if alias is None:
+      alias = name
+    self.inputs.append((node,name,alias,kwargs))
+
+  def define_output(self,node,name=None,alias=None,**kwargs):
+    if alias is None:
+      alias = name
+    self.outputs.append((node,name,alias,kwargs))
+
   def add_node(self,model_type=None,name=None,process=None,**tags):
     # if hasattr(node_or_name,'model_type'):
     #   self.nodes.append(node_or_name)
@@ -30,6 +71,55 @@ class OWTemplate(object):
 
   def add_link(self,link):
     self.links.append(link)
+
+  def flatten(self):
+    '''
+    Generate a single, flat template containing all nested
+    templates, instantiating links between nested templates based
+    on input and output descriptions.
+
+    When instantiating links, the order of the nested templates matters,
+    with links only instantiated from outputs of earlier nested templates to
+    inputs of later nested templates.
+    '''
+    result = OWTemplate(self.label)
+    result.nodes += self.nodes
+    result.links += self.links
+
+    result.inputs += self.inputs
+    result.outputs += self.outputs
+
+    flattened = [t.flatten() for t in self.nested]
+    available_outputs = []
+    used_outputs = []
+    for child in flattened:
+      result.nodes += child.nodes
+      result.links += child.links
+
+      for child_input in child.inputs:
+        input_linked = False
+        for previous_output in available_outputs:
+          if connections_match(previous_output,child_input):
+#            print('linking',previous_output,child_input)
+            result.add_link(OWLink(previous_output[0],previous_output[1],child_input[0],child_input[1]))
+            used_outputs.append(previous_output)
+            input_linked = True
+        if not input_linked:
+          result.inputs.append(child_input)
+
+      available_outputs += child.outputs
+    #unused_outputs = set(available_outputs).difference(set(used_outputs))
+    unused_outputs = [o for o in available_outputs if not o in used_outputs]
+    result.outputs+= list(unused_outputs)
+    return result
+
+  def nest(self,other):
+    '''
+    Add all nodes and links from other to this template,
+    connecting all outputs from this template to inputs in other AND
+
+    '''
+    self.nested.append(other)
 
   def instantiate(self,**instance_tags):
     res = OWTemplate()
@@ -50,8 +140,14 @@ class OWNode(object):
     self.model_type = model_type
     if hasattr(model_type,'name'):
       self.model_name = model_type.name
+      self.model_type = model_type
     else:
       self.model_name = model_type
+      import openwater.nodes as node_types
+      from openwater.discovery import discover
+      discover()
+      self.model_type = getattr(node_types,self.model_name)
+
     self.tags = tags
     self.tags[TAG_MODEL] = self.model_name
 
