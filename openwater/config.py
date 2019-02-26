@@ -124,10 +124,10 @@ class DefaultParameteriser(object):
         self._params = kwargs
     
     def parameterise(self,model_desc,grp,instances,dims,nodes):
-        if model_desc.name != self._model:
+        if model_desc.name != self._model and model_desc != self._model:
             return
         
-        print('Applying default parameters: %s'%self._model)
+        print('Applying default parameters: %s'%model_desc.name)
         print(model_desc.description['Parameters'])
         for param_num, param in enumerate(model_desc.description['Parameters']):
             pname = param['Name']
