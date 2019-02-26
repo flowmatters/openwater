@@ -119,14 +119,16 @@ class ParameterTableAssignment(object):
         grp['parameters'][param_idx,:]=param_data
 
 class DefaultParameteriser(object):
-    def __init__(self,model_name,**kwargs):
+    def __init__(self,model_name=None,**kwargs):
         self._model = model_name
         self._params = kwargs
     
     def parameterise(self,model_desc,grp,instances,dims,nodes):
-        if model_desc.name != self._model and model_desc != self._model:
+        if model_desc.name != self._model and \
+           model_desc != self._model and \
+           self._model is not None:
             return
-        
+
         print('Applying default parameters: %s'%model_desc.name)
         print(model_desc.description['Parameters'])
         for param_num, param in enumerate(model_desc.description['Parameters']):
