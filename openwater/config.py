@@ -31,13 +31,12 @@ class DataframeInputs(object):
         self._inputs[input_name] = DataframeInput(df,col_format)
 
     def parameterise(self,model_desc,grp,instances,dims,nodes):
-        print('==== Called for %s ===='%model_desc.name)
         description = model_desc.description
         inputs = description['Inputs']
         if not len(set(inputs).intersection(set(self._inputs.keys()))):
-            print('No inputs configured')
             return
 
+        print('==== Called for %s ===='%model_desc.name)
         print(inputs)
         print(grp)
         print(dims)
@@ -130,7 +129,6 @@ class DefaultParameteriser(object):
             return
 
         print('Applying default parameters: %s'%model_desc.name)
-        print(model_desc.description['Parameters'])
         for param_num, param in enumerate(model_desc.description['Parameters']):
             pname = param['Name']
             pdefault = param['Default']
