@@ -58,6 +58,11 @@ class OpenwaterResults(object):
     run_map = self.model[map_grp][...]
     return dim_names, dims, run_map
 
+  def _model_name(self,model):
+    if hasattr(model,'name'):
+        return model.name
+    return model
+
   def time_series(self,model,variable,columns,aggregator=None,**kwargs):
     '''
     Return a table (DataFrame) of time series results from the model.
@@ -74,6 +79,7 @@ class OpenwaterResults(object):
 
     For dimensions (row, columns and kwargs), see dims_for_model
     '''
+    model = self._model_name(model)
     data = self._retrieve_all(model,variable)
     dim_names, dims, run_map = self._map_runs(model)
 
@@ -118,6 +124,7 @@ class OpenwaterResults(object):
 
     For dimensions (row, columns and kwargs), see dims_for_model
     '''
+    model = self._model_name(model)
     data = self._retrieve_all(model,variable)
     dim_names, dims, run_map = self._map_runs(model)
     slices = [slice(None,None,None) for _ in dim_names]
@@ -149,9 +156,15 @@ class OpenwaterResults(object):
     return list(self.model['/MODELS'].keys())
 
   def variables_for(self,model):
-    desc = getattr(node_types,model)
+    if hasattr(model,'name'):
+        desc = model
+    else:
+        desc = getattr(node_types,model)
     return desc.description['Inputs'] + desc.description['Outputs']
 
   def dims_for_model(self,model):
+    model = self._model_name(model)
     map_grp = '/MODELS/%s/map'%model
+    if not map_grp in self.model:
+        raise Exception('Missing model type: %s'%model)
     return [d.decode('utf-8') for d in self.model[map_grp].attrs['DIMS']]
