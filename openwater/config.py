@@ -56,6 +56,48 @@ class DataframeInputs(object):
                 print('Processing %s'%node_name)
             i += 1
 
+class SingleTimeseriesInput(object):
+    def __init__(self,series,the_input,model=None,**tags):
+        self.series = series
+        self.model = model
+        self.the_input = the_input
+        self.tags = tags
+
+    def parameterise(self,model_desc,grp,instances,dims,nodes):
+        applies = (self.model is None) or (self.model==model_desc.name) or (self.model==model_desc)
+        if not applies:
+            return
+
+        description = model_desc.description
+        inputs = description['Inputs']
+        matching_inputs = [i for i,nm in enumerate(inputs) if nm==self.the_input]
+        if len(matching_inputs)==0:
+            return
+
+        print('==== SingleTimeseriesInput(%s) called for %s ===='%(self.the_input,model_desc.name))
+        input_num = matching_inputs[0]
+        data = np.array(self.series)
+
+        i = 0
+        for node_name,node in nodes.items():
+            applies_to_node = True
+            for tag_name,tag_value in self.tags.items():
+                if node[tag_name] != tag_value:
+                    applies_to_node = False
+                    break
+
+            if not applies_to_node:
+                continue
+
+            run_idx = node['_run_idx']
+            grp['inputs'][run_idx,input_num,:] = data
+
+            if i%100 == 0:
+                print('Processing %s'%node_name)
+            i += 1
+
+
+
 class ParameterTableAssignment(object):
     '''
     Parameterise OpenWater models from a DataFrame.
