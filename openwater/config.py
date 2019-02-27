@@ -126,10 +126,15 @@ class ParameterTableAssignment(object):
     def _parameterise_nd(self,model_desc,grp,instances,dims,nodes):
         param_names = [p['Name'] for p in model_desc.description['Parameters']]
         param_data = {p:np.zeros(instances.size,dtype='float64') for p in param_names if p in self.df.columns}
-
+        ignored = []
         for _,node in nodes.items():
             subset = self.df
             for dim in dims.keys():
+                if not dim in subset.columns:
+                    if not dim in ignored:
+                        print('%s not specified in table, ignoring'%dim)
+                    ignored.append(dim)
+                    continue
                 subset = subset[subset[dim]==node[dim]]
             assert len(subset)==1
 
