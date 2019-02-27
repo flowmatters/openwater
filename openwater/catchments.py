@@ -20,7 +20,7 @@ class SemiLumpedCatchment(object):
   def __init__(self):
     self.hrus = ['HRU']
     self.cgus = ['CGU']
-    self.cgu_hrus = {'CGU':'HRU'}
+    self.cgu_hrus = {}
     self.constituents = ['Con']
 
     self.rr = n.Simhyd
@@ -53,7 +53,7 @@ class SemiLumpedCatchment(object):
       runoff[hru] = runoff_node
 
     for cgu in self.cgus:
-      runoff_node = runoff[self.cgu_hrus[cgu]]
+      runoff_node = runoff[self.cgu_hrus.get(cgu,cgu)]
 
       runoff_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Runoff',**kwargs)
       quickflow_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Quickflow',**kwargs)
