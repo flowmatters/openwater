@@ -1,6 +1,8 @@
 
 from . import single, ensemble, lib, nodes
 import os
+import numpy as np
+
 OW_BIN=os.path.join(os.path.expanduser('~'),'src/projects/openwater')
 
 def _exe_path(prog,family='ow'):
@@ -48,16 +50,16 @@ def _make_model_doc(func,description,return_states=None):
 def _collect_arguments(description,args,kwargs):
   param_names = [p['Name'] for p in description['Parameters']]
 
-  inputs=[[] for _ in description['Inputs']]
+  inputs=[np.empty(0) for _ in description['Inputs']]
   params=[p['Default'] for p in description['Parameters']]
-  states=[[] for _ in description['States']]
-  outputs=[[] for _ in description['Outputs']]
+  states=[np.empty(0) for _ in description['States']]
+  outputs=[np.empty(0) for _ in description['Outputs']]
 
   n_in = len(description['Inputs'])
   n_pa = len(description['Parameters'])
   for i,arg in enumerate(args):
     if i < n_in:
-      inputs[i] = list(arg)
+      inputs[i] = arg
     elif i < (n_in+n_pa):
       params[i-n_in] = arg
     else:
