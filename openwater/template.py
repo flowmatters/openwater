@@ -539,6 +539,7 @@ class ModelGraph(object):
         # Should at least support attributes (tags that only ever have one value)
         dimensions = list(dimsets)[0]
 
+#        dim_values = {d:sorted({nodes[n][d] for n in node_set}) for d in dimensions}
         dim_values = {d:sorted({nodes[n][d] for n in node_set}) for d in dimensions}
         attributes = {d:vals[0] for d,vals in dim_values.items() if len(vals)==1}
         dimension_values = {d:vals for d,vals in dim_values.items() if len(vals)>1}
@@ -546,13 +547,13 @@ class ModelGraph(object):
 
         # dims = tags_by_process[p]
         # dimensions = [distinct_values[d] for d in dims]
-        shape = tuple([len(dimension_values[d]) for d in dimensions])
+        shape = tuple([len(self.distinct_values[d]) for d in dimensions])
 
         model_instances = np.ones(shape=shape,dtype=np.uint32) * -1
         for node_name in node_set:
             node = nodes[node_name]
 
-            loc = tuple([dimension_values[d].index(node[d]) for d in dimensions])
+            loc = tuple([self.distinct_values[d].index(node[d]) for d in dimensions])
             if len(loc) < len(shape):
                 print(loc,node)
             model_instances[loc] = node[TAG_RUN_INDEX]
@@ -663,3 +664,4 @@ def run_simulation(model,output='model_outputs.h5',overwrite=False):
     cmd = '%s %s %s'%(cmd,model,output)
     res = os.system(cmd)
     return res
+
