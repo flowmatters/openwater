@@ -40,7 +40,7 @@ setup(
         author_email='joel@flowmatters.com.au',
         url='https://github.com/flowmatters/openwater',
         license='MIT',
-        py_modules=['openwater'],
+        py_modules=['openwater','openwater.tests','openwater.tests.system_test],
         include_package_data=True,
         zip_safe=True,
         test_suite = 'nose.collector',
