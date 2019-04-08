@@ -15,7 +15,6 @@ from numpy.testing import assert_array_equal
 import math
 import re
 import numpy as np
-import netCDF4 as nc
 import h5py as h5
 import pandas as pd
 
