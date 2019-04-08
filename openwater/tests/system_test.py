@@ -27,7 +27,6 @@ CATCHMENT_SCALE = 10**math.ceil(math.log10(N_LANDUSES)) * LU_SCALE * 10
 N_CATCHMENTS = 2**N_LEVELS - 1
 MODEL_FN='test_model.h5'
 RESULTS_FN='test_model_outputs.h5'
-discovery.set_exe_path(os.environ.get('OW_BIN',os.getcwd()))
 
 def clean(fn):
     if os.path.exists(fn):

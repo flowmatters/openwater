@@ -3,7 +3,7 @@ from . import single, ensemble, lib, nodes
 import os
 import numpy as np
 
-OW_BIN=os.path.join(os.path.expanduser('~'),'bin')
+OW_BIN=os.environ.get('OW_BIN',os.path.join(os.path.expanduser('~'),'bin'))
 
 def set_exe_path(p):
   global OW_BIN
