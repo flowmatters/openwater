@@ -12,10 +12,16 @@ agg_fns = {
     'sum':lambda a: a.sum(axis=0)
 }
 
+def _open_h5(f):
+    if hasattr(f,'groups'):
+        return f
+    import h5py as h5
+    return h5.File(f,'r')
+
 class OpenwaterResults(object):
   def  __init__(self,model,res_file,time_period=None):
-    self.model = model
-    self.results = res_file
+    self.model = _open_h5(model)
+    self.results = _open_h5(res_file)
     self.time_period = time_period
     self._dimensions={}
 
