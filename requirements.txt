@@ -1,2 +1,5 @@
 graphviz
 networkx
+pandas
+numpy
+h5py
