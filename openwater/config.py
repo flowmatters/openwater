@@ -30,7 +30,9 @@ class DataframeInput(object):
 
     def get_series(self,**kwargs):
         col_name = self.column_format.substitute(**kwargs)
-        return np.array(self.df[col_name])
+        if col_name in self.df.columns:
+            return np.array(self.df[col_name])
+        return None
     
 class DataframeInputs(object):
     def __init__(self):
@@ -53,16 +55,20 @@ class DataframeInputs(object):
         print(instances.shape)
         print()
         i = 0
+        applied = 0
         for node_name,node in nodes.items():
             run_idx = node['_run_idx']
             for input_num,input_name in enumerate(inputs):
                 if not input_name in self._inputs:
                     continue
                 data = self._inputs[input_name].get_series(**node)
+                if data is None:
+                    continue
+                applied += 1
                 grp['inputs'][run_idx,input_num,:] = data
 
             if i%100 == 0:
-                print('Processing %s'%node_name)
+                print('Processing %s. Applied %d inputs'%(node_name,applied))
             i += 1
 
 class SingleTimeseriesInput(object):
@@ -144,7 +150,10 @@ class ParameterTableAssignment(object):
                     ignored.append(dim)
                     continue
                 subset = subset[subset[dim]==node[dim]]
-            assert len(subset)==1
+            if not len(subset)==1:
+                print(node)
+                print(subset)
+                assert len(subset)==1
 
             run_idx = node['_run_idx']
             for p,arr in param_data.items():
