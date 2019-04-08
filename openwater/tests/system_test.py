@@ -6,7 +6,7 @@ from openwater import OWTemplate, OWLink, debugging, compute_simulation_order
 import openwater.template as templating
 import openwater.nodes as node_types
 import openwater.config as config
-from openwater.discovery import discover
+import openwater.discovery as discovery
 from openwater.config import *
 from openwater.results import OpenwaterResults
 from datetime import datetime
@@ -27,7 +27,7 @@ CATCHMENT_SCALE = 10**math.ceil(math.log10(N_LANDUSES)) * LU_SCALE * 10
 N_CATCHMENTS = 2**N_LEVELS - 1
 MODEL_FN='test_model.h5'
 RESULTS_FN='test_model_outputs.h5'
-discover.OW_BIN=os.environ['OW_BIN']
+discovery.set_exe_path(os.environ.get('OW_BIN',os.getcwd()))
 
 def clean(fn):
     if os.path.exists(fn):
@@ -98,7 +98,7 @@ class TestOWSim(unittest.TestCase):
         clean(MODEL_FN)
         clean(RESULTS_FN)
 
-        discover()
+        discovery.discover()
         template = OWTemplate()
         link = template.add_node(node_types.Sum,process='transport')
 
@@ -118,7 +118,7 @@ class TestOWSim(unittest.TestCase):
         model._parameteriser = params
 
         model.write_model(MODEL_FN,N_TIMESTEPS)
-        os.system('%s -overwrite %s %s'%(os.path.join(discover.OW_BIN,'ow-sim'),MODEL_FN,RESULTS_FN))
+        os.system('%s -overwrite %s %s'%(os.path.join(discovery._exe_path('sim')),MODEL_FN,RESULTS_FN))
         res = OpenwaterResults(MODEL_FN,RESULTS_FN)
         models = res.models()
         self.assertIn('RunoffCoefficient', models)
