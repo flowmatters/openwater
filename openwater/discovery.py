@@ -86,7 +86,7 @@ def discover():
   import os
   import json
   import subprocess
-  metadata = json.loads(subprocess.check_output([_exe_path('inspect')]))
+  metadata = json.loads(subprocess.check_output([_exe_path('inspect')]).decode('utf-8'))
 
   for model_name,model_meta in metadata.items():
     single._create_model_func(model_name,model_meta)
