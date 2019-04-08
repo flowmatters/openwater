@@ -32,7 +32,7 @@ setup(
         name='openwater',
         version=version,
         description="Hydrological modelling system",
-        packages=find_packages()#["openwater"],
+        packages=find_packages(),#["openwater"],
         long_description=read("README.md"),
         classifiers=filter(None, classifiers.split("\n")),
         keywords='hydrology scripting simulation',
