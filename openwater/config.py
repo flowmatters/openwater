@@ -1,6 +1,15 @@
 from string import Template
 import numpy as np
 
+def _models_match(configured,trial):
+    if configured is None:
+        return True
+
+    if configured == trial:
+        return True
+
+    return configured == trial.name
+
 class Parameteriser(object):
     def __init__(self):
         self._parameterisers = []
@@ -64,8 +73,7 @@ class SingleTimeseriesInput(object):
         self.tags = tags
 
     def parameterise(self,model_desc,grp,instances,dims,nodes):
-        applies = (self.model is None) or (self.model==model_desc.name) or (self.model==model_desc)
-        if not applies:
+        if not _models_match(self.model,model_desc):
             return
 
         description = model_desc.description
@@ -113,7 +121,7 @@ class ParameterTableAssignment(object):
         self.dim_columns = dim_columns
 
     def parameterise(self,model_desc,grp,instances,dims,nodes):
-        if model_desc.name != self.model:
+        if not _models_match(self.model,model_desc):
             return
 
         print('Applying parameter table to %s'%model_desc.name)
@@ -170,9 +178,7 @@ class DefaultParameteriser(object):
         self._params = kwargs
     
     def parameterise(self,model_desc,grp,instances,dims,nodes):
-        if model_desc.name != self._model and \
-           model_desc != self._model and \
-           self._model is not None:
+        if not _models_match(self._model,model_desc):
             return
 
         print('Applying default parameters: %s'%model_desc.name)
