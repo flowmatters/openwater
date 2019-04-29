@@ -521,7 +521,8 @@ class ModelGraph(object):
         if not flux_type.endswith('s'):
             flux_type += 's'
         if not flux_name in desc[flux_type]:
-            return -1
+            raise Exception('Unknown %s flux %s on %s'%(flux_type[:-1],flux_name,model_type))
+            #return -1
         return desc[flux_type].index(flux_name)
 
     def _write_meta(self,h5f):
