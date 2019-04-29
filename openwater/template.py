@@ -11,6 +11,7 @@ TAG_RUN_INDEX='_run_idx'
 TAG_GENERATION='_generation'
 META_TAGS=[TAG_PROCESS,TAG_MODEL,TAG_RUN_INDEX,TAG_GENERATION]
 DEFAULT_TIMESTEPS=365
+LINK_TABLE_COLUMNS = ['%s_%s'%(n,c) for n in ['src','dest'] for c in ['generation','model','node','gen_node','var']]
 
 def connections_match(o,i):
   o_node,_,o_alias,o_tags = o
@@ -647,7 +648,7 @@ class ModelGraph(object):
                 link['dest_var'] = self._flux_number(l_to,'input',dest_var)
                 link_table.append(link)
         link_table = pd.DataFrame(link_table)
-        col_order = ['%s_%s'%(n,c) for n in ['src','dest'] for c in ['generation','model','node','gen_node','var']]
+        col_order = LINK_TABLE_COLUMNS
         link_table = link_table[col_order]
         sort_order = ['src_generation','src_model','src_gen_node','dest_generation','dest_model','dest_gen_node']
         return link_table.sort_values(sort_order)
@@ -655,6 +656,38 @@ class ModelGraph(object):
     def _write_links(self,f):
         table = np.array(self.link_table())
         f.create_dataset('LINKS',dtype=np.uint32,data=table)
+
+class ModelFile(object):
+    def __init__(self,fn):
+        self.filename = fn
+        import h5py
+        self._h5f = h5py.File(self.filename,'r')
+        self._dimensions = {k:[d.decode() for d in self._h5f['DIMENSIONS'][k][...]] for k in self._h5f['DIMENSIONS']}
+ #       print(self._dimensions)
+        self._links = pd.DataFrame(self._h5f['LINKS'][...],columns=LINK_TABLE_COLUMNS)
+        self._models = self._h5f['META']['models'][...]
+
+    def _matches(self,model,**tags):
+        model_dims = [d.decode() for d in self._h5f['MODELS'][model]['map'].attrs['DIMS']]
+        # print(model_dims)
+        lookup = {}
+        for tag,value in tags.items():
+            if not tag in model_dims:
+                return False
+            if not value in self._dimensions[tag]:
+                return False
+            lookup[tag] = self._dimensions[tag].index(value)
+        idx = [lookup.get(d,slice(None,None)) for d in model_dims]
+        # print(model,list(zip(model_dims,idx)))
+        return np.any(self._h5f['MODELS'][model]['map'][tuple(idx)] > 0)
+
+    def models_matching(self,**tags):
+        result = []
+        for k in self._h5f['MODELS']:
+            # print(k)
+            if self._matches(k,**tags):
+                result.append(k)
+        return result
 
 def run_simulation(model,output='model_outputs.h5',overwrite=False):
     import openwater.discovery
