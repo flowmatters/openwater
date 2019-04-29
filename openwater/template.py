@@ -474,7 +474,7 @@ class ModelGraph(object):
         i = 0
         nodes = self._graph.nodes
         for gen in self.order:
-            relevant_gen = [n for n in gen if nodes[n][TAG_MODEL]==model_type and nodes[n][TAG_PROCESS]==proc] ### BAD ASSUMPTION!
+            relevant_gen = [n for n in gen if nodes[n][TAG_MODEL]==model_type] # and nodes[n][TAG_PROCESS]==proc] ### BAD ASSUMPTION!
             relevant_gen = sort_nodes(relevant_gen)
 
             for n in relevant_gen:
