@@ -560,6 +560,14 @@ class ModelGraph(object):
         dimension_values = {d:vals for d,vals in dim_values.items() if len(vals)>1}
         dimensions = [d for d in dimensions if not d in attributes]
 
+        if not len(dimensions):
+            print(attributes)
+            print(len(node_set))
+            raise 'No dimensions'
+
+        if len([d for d in dimensions if len(dimension_values[d])==0]):
+            print('Dimension(s) with 0 length:',dimension_values)
+            raise Exception('Dimension(s) with 0 length')
         # dims = tags_by_process[p]
         # dimensions = [distinct_values[d] for d in dims]
         shape = tuple([len(self.distinct_values[d]) for d in dimensions])
