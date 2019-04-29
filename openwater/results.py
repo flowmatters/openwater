@@ -13,7 +13,7 @@ agg_fns = {
 }
 
 def _open_h5(f):
-    if hasattr(f,'groups'):
+    if hasattr(f,'filename'):
         return f
     import h5py as h5
     return h5.File(f,'r')
