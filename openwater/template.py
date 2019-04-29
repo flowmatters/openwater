@@ -482,6 +482,19 @@ class ModelGraph(object):
                 node[TAG_RUN_INDEX] = i
                 i += 1
 
+    def nodes_matching(self,model,**tags):
+        if hasattr(model,'name'):
+            model = model.name
+        if not '_model' in tags:
+            tags['_model'] = model
+
+        def tags_match(node):
+            for k,v in tags.items():
+                if not k in node or node[k] != v:
+                    return False
+            return True
+        return  {n:self._graph.nodes[n] for n in self._graph.nodes if tags_match(self._graph.nodes[n])}
+
     def write_model(self,f,timesteps=DEFAULT_TIMESTEPS):
         close = False
         if hasattr(f,'upper'):
