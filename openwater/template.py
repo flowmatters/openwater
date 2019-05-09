@@ -1,10 +1,17 @@
 import os
+import sys
+from subprocess import Popen, PIPE
+from queue import Queue, Empty  # python 3.x
+from threading  import Thread
+from time import sleep
 import numpy as np
 import pandas as pd
 import networkx as nx
 from functools import reduce
 from . import nodes as node_types
 
+# Non blocking IO solution from http://stackoverflow.com/a/4896288
+ON_POSIX = 'posix' in sys.builtin_module_names
 TAG_PROCESS='_process'
 TAG_MODEL='_model'
 TAG_RUN_INDEX='_run_idx'
@@ -442,6 +449,7 @@ class ModelGraph(object):
     def __init__(self,graph,initialise=True):
         self._graph = graph
         self._parameteriser = None
+        self._last_write = None
         if initialise:
             self.initialise()
 
@@ -511,6 +519,72 @@ class ModelGraph(object):
             self._write_links(h5f)
         finally:
             if close: h5f.close()
+        self._last_write=f
+
+    def run(self,time_period,model_fn=None,results_fn=None,**kwargs):
+        '''
+
+        kwargs: Arguments and fflags to pass directly to ow-sim, including:
+
+        * overwrite (boolean): Overwrite existing output file if it exists
+        * verbose (boolean): Show verbose logging during simulation
+        '''
+        from openwater.discovery import _exe_path
+        from openwater.results import OpenwaterResults
+
+        if model_fn:
+            self.write_model(model_fn,len(time_period))
+        model_fn = self._last_write
+
+        if not model_fn:
+            raise Exception('model_fn not provided and model not previously saved')
+
+        if not results_fn:
+            base,ext = os.path.splitext(model_fn)
+            results_fn = '%s_outputs%s'%(base,ext)
+            print('INFO: No output filename provided. Writing to %s'%results_fn)
+
+        # flags = ' '.join([ow_sim_flag_text(k,v) 
+        cmd_line = [_exe_path('sim')]
+        for k,v in kwargs.items():
+            cmd_line.append(ow_sim_flag_text(k,v))
+        cmd_line.append(model_fn),
+        cmd_line.append(results_fn)
+        # "%s %s %s %s"%(_exe_path('sim'),flags,model_fn,results_fn)
+
+        proc = Popen(cmd_line,stdout=PIPE,stderr=PIPE,bufsize=1, close_fds=ON_POSIX)
+        std_out_queue,std_out_thread = configure_non_blocking_io(proc,'stdout')
+        std_err_queue,std_err_thread = configure_non_blocking_io(proc,'stderr')
+
+        err = []
+        out = []
+        finished = False
+        while not finished:
+            if proc.poll() is not  None:
+                finished = True
+
+            end_stream=False
+            while not end_stream:
+                try:
+                    line = std_err_queue.get_nowait().decode('utf-8')
+                    err.append(line)
+                    print('ERROR %s'%(line,))
+                    sys.stdout.flush()
+                except Empty:
+                    end_stream = True
+
+            end_stream = False
+            while not end_stream:
+                try:
+                    line = std_out_queue.get_nowait().decode('utf-8')
+                    out.append(line)
+                    print(line)
+                    sys.stdout.flush()
+                except Empty:
+                    end_stream = True
+                    sleep(0.05)
+
+        return OpenwaterResults(model_fn,results_fn,time_period)
 
     def _flux_number(self,node_name,flux_type,flux_name):
         node = self._graph.nodes[node_name]
@@ -719,4 +793,23 @@ def run_simulation(model,output='model_outputs.h5',overwrite=False):
     cmd = '%s %s %s'%(cmd,model,output)
     res = os.system(cmd)
     return res
+
+def _enqueue_output(out, queue):
+    for line in iter(out.readline, b''):
+        queue.put(line)
+    out.close()
+
+def configure_non_blocking_io(proc,stream):
+    queue = Queue()
+    thread = Thread(target=_enqueue_output,args=(getattr(proc,stream),queue))
+    thread.daemon = True
+    thread.start()
+    return queue,thread
+
+def ow_sim_flag_text(k,v):
+    if v == False:
+        return ''
+    if v == True:
+        return '-%s'%k
+    return '-%s %s'%(k,str(v))
 
