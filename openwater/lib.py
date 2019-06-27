@@ -11,7 +11,10 @@ def _create_model_func(model_name,description):
 
   global _the_library
   if not _the_library:
-    _the_library = ctypes.CDLL(_lib_path())
+    try:
+        _the_library = ctypes.CDLL(_lib_path())
+    except:
+        return
 
   thismodule = sys.modules[__name__]
 
