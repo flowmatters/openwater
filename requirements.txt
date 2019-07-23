@@ -1,5 +1,5 @@
 graphviz
-networkx
+networkx==2.2
 pandas
 numpy
 h5py
