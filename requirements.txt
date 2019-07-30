@@ -1,5 +1,5 @@
 graphviz
 networkx==2.2
-pandas
+pandas==0.23.4
 numpy
 h5py
