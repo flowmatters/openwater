@@ -120,7 +120,10 @@ class TestOWSim(unittest.TestCase):
         print(glob('*.h5'))
         cmd_line = '%s -overwrite %s %s'%(os.path.join(discovery._exe_path('sim')),MODEL_FN,RESULTS_FN)
         print('Running: ',cmd_line)
-        os.system(cmd_line)
+        exit_code = os.system(cmd_line)
+        if exit_code:
+            raise Exception('Simulation exited with exit code: %d'%exit_code)
+
         res = OpenwaterResults(MODEL_FN,RESULTS_FN)
         models = res.models()
         self.assertIn('RunoffCoefficient', models)
