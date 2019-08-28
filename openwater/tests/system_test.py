@@ -10,6 +10,7 @@ import openwater.discovery as discovery
 from openwater.config import *
 from openwater.results import OpenwaterResults
 from datetime import datetime
+from glob import glob
 
 from numpy.testing import assert_array_equal
 import math
@@ -116,7 +117,10 @@ class TestOWSim(unittest.TestCase):
         model._parameteriser = params
 
         model.write_model(MODEL_FN,N_TIMESTEPS)
-        os.system('%s -overwrite %s %s'%(os.path.join(discovery._exe_path('sim')),MODEL_FN,RESULTS_FN))
+        print(glob('*.h5'))
+        cmd_line = '%s -overwrite %s %s'%(os.path.join(discovery._exe_path('sim')),MODEL_FN,RESULTS_FN)
+        print('Running: ',cmd_line)
+        os.system(cmd_line)
         res = OpenwaterResults(MODEL_FN,RESULTS_FN)
         models = res.models()
         self.assertIn('RunoffCoefficient', models)
