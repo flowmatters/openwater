@@ -529,9 +529,6 @@ class ModelGraph(object):
         * overwrite (boolean): Overwrite existing output file if it exists
         * verbose (boolean): Show verbose logging during simulation
         '''
-        from openwater.discovery import _exe_path
-        from openwater.results import OpenwaterResults
-
         if model_fn:
             self.write_model(model_fn,len(time_period))
         model_fn = self._last_write
@@ -539,52 +536,7 @@ class ModelGraph(object):
         if not model_fn:
             raise Exception('model_fn not provided and model not previously saved')
 
-        if not results_fn:
-            base,ext = os.path.splitext(model_fn)
-            results_fn = '%s_outputs%s'%(base,ext)
-            print('INFO: No output filename provided. Writing to %s'%results_fn)
-
-        # flags = ' '.join([ow_sim_flag_text(k,v) 
-        cmd_line = [_exe_path('sim')]
-        for k,v in kwargs.items():
-            cmd_line.append(ow_sim_flag_text(k,v))
-        cmd_line.append(model_fn),
-        cmd_line.append(results_fn)
-        # "%s %s %s %s"%(_exe_path('sim'),flags,model_fn,results_fn)
-
-        proc = Popen(cmd_line,stdout=PIPE,stderr=PIPE,bufsize=1, close_fds=ON_POSIX)
-        std_out_queue,std_out_thread = configure_non_blocking_io(proc,'stdout')
-        std_err_queue,std_err_thread = configure_non_blocking_io(proc,'stderr')
-
-        err = []
-        out = []
-        finished = False
-        while not finished:
-            if proc.poll() is not  None:
-                finished = True
-
-            end_stream=False
-            while not end_stream:
-                try:
-                    line = std_err_queue.get_nowait().decode('utf-8')
-                    err.append(line)
-                    print('ERROR %s'%(line,))
-                    sys.stdout.flush()
-                except Empty:
-                    end_stream = True
-
-            end_stream = False
-            while not end_stream:
-                try:
-                    line = std_out_queue.get_nowait().decode('utf-8')
-                    out.append(line)
-                    print(line)
-                    sys.stdout.flush()
-                except Empty:
-                    end_stream = True
-                    sleep(0.05)
-
-        return OpenwaterResults(model_fn,results_fn,time_period)
+        return _run(time_period,model_fn,results_fn,**kwargs)
 
     def _flux_number(self,node_name,flux_type,flux_name):
         node = self._graph.nodes[node_name]
@@ -753,15 +705,21 @@ class ModelGraph(object):
         table = np.array(self.link_table())
         f.create_dataset('LINKS',dtype=np.uint32,data=table)
 
+def dim_val(v):
+    if hasattr(v,'decode'):
+        return v.decode()
+    return v
+
 class ModelFile(object):
     def __init__(self,fn):
         self.filename = fn
         import h5py
         self._h5f = h5py.File(self.filename,'r')
-        self._dimensions = {k:[d.decode() for d in self._h5f['DIMENSIONS'][k][...]] for k in self._h5f['DIMENSIONS']}
+        self._dimensions = {k:[dim_val(d) for d in self._h5f['DIMENSIONS'][k][...]] for k in self._h5f['DIMENSIONS']}
  #       print(self._dimensions)
         self._links = pd.DataFrame(self._h5f['LINKS'][...],columns=LINK_TABLE_COLUMNS)
         self._models = self._h5f['META']['models'][...]
+        self._parameteriser = None
 
     def _matches(self,model,**tags):
         model_dims = [d.decode() for d in self._h5f['MODELS'][model]['map'].attrs['DIMS']]
@@ -784,6 +742,132 @@ class ModelFile(object):
             if self._matches(k,**tags):
                 result.append(k)
         return result
+
+    def _map_model_dims(self,model):
+        model_map = self._h5f['MODELS'][model]['map'][...]
+        m_dims = [dim_val(d) for d in self._h5f['MODELS'][model]['map'].attrs['DIMS']]
+        dims = {d:self._h5f['DIMENSIONS'][d][...] for d in m_dims}
+        dim_indices = list(zip(*np.where(np.logical_not(np.isnan(model_map)))))
+        def translate_dims(tpl):
+            return [dim_val(dims[d][ix]) for d,ix in zip(m_dims,tpl)]
+
+        dim_columns = [translate_dims(di)+[ix] for ix,di in enumerate(dim_indices) if model_map[di]>=0]
+
+        return {d:[di[i] for di in dim_columns] for i,d in enumerate(m_dims+['_run_idx'])}
+
+    def parameters(self,model):
+        vals = self._h5f['MODELS'][model]['parameters'][...]
+        desc = getattr(node_types,model)
+        names = [p['Name'] for p in desc.description['Parameters']]
+
+        dims = self._map_model_dims(model)
+
+        result = pd.DataFrame(vals.transpose(),columns=names)
+        for k,vals in dims.items():
+            result[k] = vals
+
+        return result
+
+    def write(self):
+        try:
+            self._h5f.close()
+            import h5py
+            self._h5f = h5py.File(self.filename,'r+')
+            if self._parameteriser is None:
+                print('Nothing to do')
+                return
+
+            models_grp = self._h5f['MODELS']
+            models = list(models_grp.keys())
+            for m in models:
+                print('Parameterising %s'%str(m))
+                model_grp = models_grp[m]
+
+                instances = model_grp['map'][...]
+                dims = [dim_val(d) for d in model_grp['map'].attrs['DIMS']]
+
+                dim_map = self._map_model_dims(m)
+
+                nodes = ['%s-%d'%(m,ix) for ix in range(len(dim_map[dims[0]]))]
+
+                # dims,attributes,instances = self._map_process(model_nodes)
+
+                model_meta = getattr(node_types,m)
+
+                node_dict = {n:{d:vals[ix] for d,vals in dim_map.items()} for ix,n in enumerate(nodes)}
+
+                self._parameteriser.parameterise(model_meta,model_grp,instances,dims,node_dict)
+        finally:
+            self._h5f.close()
+            self._h5f = h5py.File(self.filename,'r')
+
+    def run(self,time_period,results_fn=None,**kwargs):
+        '''
+
+        kwargs: Arguments and fflags to pass directly to ow-sim, including:
+
+        * overwrite (boolean): Overwrite existing output file if it exists
+        * verbose (boolean): Show verbose logging during simulation
+        '''
+        return _run(time_period,self.filename,results_fn,**kwargs)
+
+def _run(time_period,model_fn=None,results_fn=None,**kwargs):
+    '''
+
+    kwargs: Arguments and fflags to pass directly to ow-sim, including:
+
+    * overwrite (boolean): Overwrite existing output file if it exists
+    * verbose (boolean): Show verbose logging during simulation
+    '''
+    from openwater.discovery import _exe_path
+    from openwater.results import OpenwaterResults
+
+    if not results_fn:
+        base,ext = os.path.splitext(model_fn)
+        results_fn = '%s_outputs%s'%(base,ext)
+        print('INFO: No output filename provided. Writing to %s'%results_fn)
+
+    # flags = ' '.join([ow_sim_flag_text(k,v) 
+    cmd_line = [_exe_path('sim')]
+    for k,v in kwargs.items():
+        cmd_line.append(ow_sim_flag_text(k,v))
+    cmd_line.append(model_fn),
+    cmd_line.append(results_fn)
+    # "%s %s %s %s"%(_exe_path('sim'),flags,model_fn,results_fn)
+
+    proc = Popen(cmd_line,stdout=PIPE,stderr=PIPE,bufsize=1, close_fds=ON_POSIX)
+    std_out_queue,std_out_thread = configure_non_blocking_io(proc,'stdout')
+    std_err_queue,std_err_thread = configure_non_blocking_io(proc,'stderr')
+
+    err = []
+    out = []
+    finished = False
+    while not finished:
+        if proc.poll() is not  None:
+            finished = True
+
+        end_stream=False
+        while not end_stream:
+            try:
+                line = std_err_queue.get_nowait().decode('utf-8')
+                err.append(line)
+                print('ERROR %s'%(line,))
+                sys.stdout.flush()
+            except Empty:
+                end_stream = True
+
+        end_stream = False
+        while not end_stream:
+            try:
+                line = std_out_queue.get_nowait().decode('utf-8')
+                out.append(line)
+                print(line)
+                sys.stdout.flush()
+            except Empty:
+                end_stream = True
+                sleep(0.05)
+
+    return OpenwaterResults(model_fn,results_fn,time_period)
 
 def run_simulation(model,output='model_outputs.h5',overwrite=False):
     import openwater.discovery
