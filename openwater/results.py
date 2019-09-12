@@ -1,4 +1,5 @@
 
+from typing import List
 from . import nodes as node_types
 import pandas as pd
 
@@ -25,7 +26,11 @@ class OpenwaterResults(object):
     self.time_period = time_period
     self._dimensions={}
 
-  def dim(self,dim):
+  def close(self):
+      self.results.close()
+      self.model.close()
+
+  def dim(self,dim:str)->List:
     if not dim in self._dimensions:
       vals = list(self.model['/DIMENSIONS'][dim][...])
       conv = lambda v: v.decode('utf-8') if hasattr(v,'decode') else v
@@ -33,6 +38,10 @@ class OpenwaterResults(object):
       self._dimensions[dim] = vals
 
     return self._dimensions[dim]
+
+  def dims(self) -> List[str]:
+      vals = list(self.model['/DIMENSIONS'].keys())
+      return vals
 
   def _retrieve_all(self,model,variable):
     desc = getattr(node_types,model)
@@ -69,7 +78,7 @@ class OpenwaterResults(object):
         return model.name
     return model
 
-  def time_series(self,model,variable,columns,aggregator=None,**kwargs):
+  def time_series(self,model,variable:str,columns:str,aggregator=None,**kwargs) -> pd.DataFrame:
     '''
     Return a table (DataFrame) of time series results from the model.
 
@@ -103,6 +112,7 @@ class OpenwaterResults(object):
       current_slices[report_dim] = i
       run_indices = run_map[tuple(current_slices)]
       run_indices = run_indices.flatten()
+      run_indices = run_indices[run_indices>=0]
       col_data = data[run_indices,:]
       if col_data.shape[0]==1:
         all_sequences[col_name] = col_data[0,:]
@@ -110,7 +120,7 @@ class OpenwaterResults(object):
         all_sequences[col_name] = agg_fns[aggregator or 'mean'](col_data)
     return pd.DataFrame(all_sequences,index=self.time_period)
 
-  def table(self,model,variable,rows,columns,temporal_aggregator='mean',aggregator=None,**kwargs):
+  def table(self,model,variable:str,rows:str,columns:str,temporal_aggregator:str='mean',aggregator:str=None,**kwargs) -> pd.DataFrame:
     '''
     Return a table (DataFrame) of aggregated model results from the model.
 
@@ -158,19 +168,20 @@ class OpenwaterResults(object):
       table_data[col_name] = col_data
     return pd.DataFrame(table_data,index=row_names)
 
-  def models(self):
+  def models(self) -> List[str]:
     return list(self.model['/MODELS'].keys())
 
-  def variables_for(self,model):
+  def variables_for(self,model) -> List[str]:
     if hasattr(model,'name'):
         desc = model
     else:
         desc = getattr(node_types,model)
     return desc.description['Inputs'] + desc.description['Outputs']
 
-  def dims_for_model(self,model):
+  def dims_for_model(self,model) -> List[str]:
     model = self._model_name(model)
     map_grp = '/MODELS/%s/map'%model
     if not map_grp in self.model:
         raise Exception('Missing model type: %s'%model)
     return [d.decode('utf-8') for d in self.model[map_grp].attrs['DIMS']]
+
