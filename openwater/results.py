@@ -100,6 +100,13 @@ class OpenwaterResults(object):
 
     slices = [slice(None,None,None) for _ in dim_names]
     for dim_name,dim_value in kwargs.items():
+      if not dim_name in dim_names:
+        map_grp = '/MODELS/%s/map'%model
+        fixed_value = self.model[map_grp].attrs.get(dim_name,None)
+        if fixed_value != dim_value:
+            raise Exception('Invalid dimension: %s=%s'%(dim_name,dim_value))
+        continue
+
       dim_num = dim_names.index(dim_name)
       dim_idx = dims[dim_name].index(dim_value)
       slices[dim_num] = dim_idx
@@ -184,4 +191,3 @@ class OpenwaterResults(object):
     if not map_grp in self.model:
         raise Exception('Missing model type: %s'%model)
     return [d.decode('utf-8') for d in self.model[map_grp].attrs['DIMS']]
-
