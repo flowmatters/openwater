@@ -20,8 +20,9 @@ def _create_model_func(model_name,description):
 
   def model_func(*args,**kwargs):
     inputs, params, states, _ = _collect_arguments(description,args,kwargs)
-    if len(inputs) and len(inputs[0].shape)==1:
-      inputs = [i.reshape(1,len(i)) for i in inputs]
+    if len(inputs):
+      len_first_provided = [len(i) for i in inputs if len(i)][0]
+      inputs = [i.reshape(1,len(i)) if len(i)==len_first_provided else np.zeros((1,len_first_provided),'d') for i in inputs]
     inputs = np.stack(inputs,axis=1)
 
     params = np.array(params)
@@ -45,7 +46,7 @@ def _create_model_func(model_name,description):
             *_conv(params),
             *_conv(states),
             *_conv(outputs),
-            ctypes.c_bool(inqit_states)]
+            ctypes.c_bool(init_states)]
 
     _the_library.RunSingleModel(*call)
     return [outputs[:,i,:] for i in range(len(description['Outputs']))] + \

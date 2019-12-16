@@ -21,7 +21,7 @@ def _create_model_func(name,description):
     for i in range(len(description['Inputs'])):
       config['Inputs'].append({
         'Name':description['Inputs'][i],
-        'Values':inputs[i]
+        'Values':list(inputs[i])
       })
 
     for i in range(len(description['Parameters'])):
@@ -30,8 +30,12 @@ def _create_model_func(name,description):
         'Value':params[i]
       })
 
-    msg = json.dumps(config,indent=2).encode('utf-8')
+    msg = json.dumps(config,indent=2)
     #print(msg)
+    f = open('tmp-%s.json'%name,'w')
+    f.write(str(msg))
+    f.close()
+    msg = msg.encode('utf-8')
 
     p = subprocess.Popen([executable_path,name],
                          stdout=subprocess.PIPE,
