@@ -114,21 +114,21 @@ class SingleTimeseriesInput(object):
                 print('Processing %s'%node_name)
             i += 1
 
-
-
 class ParameterTableAssignment(object):
     '''
     Parameterise OpenWater models from a DataFrame.
 
 
     '''
-    def __init__(self,df,model,parameter=None,column_dim=None,row_dim=None,dim_columns=None):
+    def __init__(self,df,model,parameter=None,column_dim=None,row_dim=None,dim_columns=None,complete=True,skip_na=False):
         self.df = df
         self.column_dim = column_dim
         self.row_dim = row_dim
         self.model = model
         self.parameter = parameter
         self.dim_columns = dim_columns
+        self.complete = complete
+        self.skip_na = skip_na
 
     def parameterise(self,model_desc,grp,instances,dims,nodes):
         if not _models_match(self.model,model_desc):
@@ -143,7 +143,8 @@ class ParameterTableAssignment(object):
 
     def _parameterise_nd(self,model_desc,grp,instances,dims,nodes):
         param_names = [p['Name'] for p in model_desc.description['Parameters']]
-        param_data = {p:np.zeros(instances.size,dtype='float64') for p in param_names if p in self.df.columns}
+        param_data = {p:grp['parameters'][i,:] for i,p in enumerate(param_names) if p in self.df.columns}
+        # param_data = {p:np.zeros(instances.size,dtype='float64') for i,p in enumerate(param_names) if p in self.df.columns}
         ignored = []
         for _,node in nodes.items():
             subset = self.df
@@ -154,6 +155,10 @@ class ParameterTableAssignment(object):
                     ignored.append(dim)
                     continue
                 subset = subset[subset[dim]==node[dim]]
+
+            if len(subset)==0 and not self.complete:
+                continue
+
             if not len(subset)==1:
                 print(node)
                 print(subset)
@@ -161,7 +166,10 @@ class ParameterTableAssignment(object):
 
             run_idx = node['_run_idx']
             for p,arr in param_data.items():
-                arr[run_idx] = subset[p]
+                val = subset[p]
+                if self.skip_na:
+                    val.fillna(0.0,inplace=True)
+                arr[run_idx] = val
 
         for i,p in enumerate(param_names):
             if not p in param_data:
@@ -180,6 +188,9 @@ class ParameterTableAssignment(object):
             row = node[self.row_dim]
 
             param = self.df[col][row]
+            if np.isnan(param) and self.skip_na:
+                continue
+
             param_data[run_idx] = param
 
         print(param_data)
