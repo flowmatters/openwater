@@ -39,7 +39,9 @@ class DataframeInputs(object):
         self._inputs = {}
     
     def inputter(self,df,input_name,col_format):
-        self._inputs[input_name] = DataframeInput(df,col_format)
+        if not input_name in self._inputs:
+            self._inputs[input_name] = []
+        self._inputs[input_name].append(DataframeInput(df,col_format))
 
     def parameterise(self,model_desc,grp,instances,dims,nodes):
         description = model_desc.description
@@ -61,11 +63,13 @@ class DataframeInputs(object):
             for input_num,input_name in enumerate(inputs):
                 if not input_name in self._inputs:
                     continue
-                data = self._inputs[input_name].get_series(**node)
-                if data is None:
-                    continue
-                applied += 1
-                grp['inputs'][run_idx,input_num,:] = data
+                inputters = self._inputs[input_name]
+                for inputter in inputters:
+                    data = inputter.get_series(**node)
+                    if data is None:
+                        continue
+                    applied += 1
+                    grp['inputs'][run_idx,input_num,:] = data
 
             if i%100 == 0:
                 print('Processing %s. Applied %d inputs'%(node_name,applied))
