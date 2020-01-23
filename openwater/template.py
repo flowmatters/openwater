@@ -582,8 +582,8 @@ class ModelGraph(object):
 
 #        dim_values = {d:sorted({nodes[n][d] for n in node_set}) for d in dimensions}
         dim_values = {d:sorted({nodes[n][d] for n in node_set}) for d in dimensions}
-        attributes = {d:vals[0] for d,vals in dim_values.items() if len(vals)==1}
-        dimension_values = {d:vals for d,vals in dim_values.items() if len(vals)>1}
+        attributes = {d:vals[0] for d,vals in dim_values.items() if (len(vals)==1) and (len(node_set)>1)}
+        dimension_values = {d:vals for d,vals in dim_values.items() if (len(vals)>1) or (len(node_set)==1)}
         dimensions = [d for d in dimensions if not d in attributes]
 
         if not len(dimensions):

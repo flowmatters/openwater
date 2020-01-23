@@ -200,7 +200,7 @@ class DefaultParameteriser(object):
     def __init__(self,model_name=None,**kwargs):
         self._model = model_name
         self._params = kwargs
-    
+
     def parameterise(self,model_desc,grp,instances,dims,nodes):
         if not _models_match(self._model,model_desc):
             return
