@@ -623,7 +623,7 @@ class ModelGraph(object):
             assert(len(processes_for_model)==1) # not necessary?
 
             dims,attributes,instances = self._map_process(model_nodes)
-            ds = model_grp.create_dataset('map',dtype=np.uint32,data=instances,fillvalue=-1)
+            ds = model_grp.create_dataset('map',dtype=instances.dtype,data=instances,fillvalue=-1)
 
             # write out model index
             ds.attrs['PROCESSES']=[np.string_(s) for s in list(processes_for_model)]
@@ -747,11 +747,11 @@ class ModelFile(object):
         model_map = self._h5f['MODELS'][model]['map'][...]
         m_dims = [dim_val(d) for d in self._h5f['MODELS'][model]['map'].attrs['DIMS']]
         dims = {d:self._h5f['DIMENSIONS'][d][...] for d in m_dims}
-        dim_indices = list(zip(*np.where(np.logical_not(np.isnan(model_map)))))
+        dim_indices = list(zip(*np.where(model_map>=0)))#np.logical_not(np.isnan(model_map)))))
         def translate_dims(tpl):
             return [dim_val(dims[d][ix]) for d,ix in zip(m_dims,tpl)]
 
-        dim_columns = [translate_dims(di)+[ix] for ix,di in enumerate(dim_indices) if model_map[di]>=0]
+        dim_columns = [translate_dims(di)+[model_map[di]] for ix,di in enumerate(dim_indices) if model_map[di]>=0]
 
         return {d:[di[i] for di in dim_columns] for i,d in enumerate(m_dims+['_run_idx'])}
 
