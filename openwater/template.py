@@ -755,16 +755,24 @@ class ModelFile(object):
 
         return {d:[di[i] for di in dim_columns] for i,d in enumerate(m_dims+['_run_idx'])}
 
-    def parameters(self,model):
+    def parameters(self,model,**tags):
         vals = self._h5f['MODELS'][model]['parameters'][...]
         desc = getattr(node_types,model)
         names = [p['Name'] for p in desc.description['Parameters']]
 
-        dims = self._map_model_dims(model)
+        result = pd.DataFrame(self._map_model_dims(model))
+        print(vals.shape)
+        order = list(result['_run_idx'])
+        for ix,name in enumerate(names):
+            result[name] = vals[ix,:][order]
 
-        result = pd.DataFrame(vals.transpose(),columns=names)
-        for k,vals in dims.items():
-            result[k] = vals
+        # result = pd.DataFrame(vals.transpose(),columns=names)
+        # for k,vals in dims.items():
+        #     result = result[:len(vals)]
+        #     result[k] = vals
+
+        for k,v in tags.items():
+            result = result[result[k]==v]
 
         return result
 
