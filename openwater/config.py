@@ -243,3 +243,15 @@ class  UniformInput(object):
               grp['inputs'][cell,input_num,:] = self.value(cell)
             else:
               grp['inputs'][cell,input_num,:] = self.value
+
+class CustomParameteriser(object):
+    def __init__(self,fn,model=None,filter=None):
+        self.model = model
+        self.fn = fn
+        self.filter = None
+
+    def parameterise(self,model_desc,grp,instances,dims,nodes):
+        if not _models_match(self.model,model_desc):
+            return
+
+        self.fn(model_desc,grp,instances,dims,nodes)
