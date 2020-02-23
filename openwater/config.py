@@ -211,6 +211,22 @@ class DefaultParameteriser(object):
             pdefault = param['Default']
             grp['parameters'][param_num,:] = self._params.get(pname,pdefault)
 
+class UniformParameteriser(object):
+    def __init__(self,model_name=None,**kwargs):
+        self._model = model_name
+        self._params = kwargs
+
+    def parameterise(self,model_desc,grp,instances,dims,nodes):
+        if not _models_match(self._model,model_desc):
+            return
+
+        print('Applying uniform parameters: %s'%model_desc.name)
+        for param_num, param in enumerate(model_desc.description['Parameters']):
+            pname = param['Name']
+            if not pname in self._params:
+                continue
+            grp['parameters'][param_num,:] = self._params[pname]
+
 class  UniformInput(object):
     def __init__(self,input_name,val):
         self.input_name = input_name
