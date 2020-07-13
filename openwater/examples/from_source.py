@@ -73,34 +73,52 @@ def build_template(v):
   catchment_template.cg = build_model_lookup(v.model.catchment.generation)
   return catchment_template
 
-def build_catchment_graph(model_structure,network):
-  catchments = network['features'].find_by_feature_type('catchment')
-  links = network['features'].find_by_feature_type('link')
-  nodes = network['features'].find_by_feature_type('node')
+def link_catchment_lookup(network):
+  res = {}
+
+  catchments = network[network.feature_type=='catchment']
+  links = network[network.feature_type=='link']
+
+  for _,catchment in catchments.iterrows():
+    cname = catchment['name']
+    link = links[links.id==catchment['link']].iloc[0]
+    res[link['name']] = cname
+
+  return res
+
+def build_catchment_graph(model_structure,network,progress=print,custom_processing=None):
+  if hasattr(network,'as_dataframe'):
+    network = network.as_dataframe()
+
+  catchments = network[network.feature_type=='catchment']
+  links = network[network.feature_type=='link']
+  nodes = network[network.feature_type=='node']
 
   g = None
 
-  for catchment in catchments:
-      tpl = model_structure.get_template(catchment=catchment['properties']['name'])
+  for _,catchment in catchments.iterrows():
+      tpl = model_structure.get_template(catchment=catchment['name']).flatten()
       g = templating.template_to_graph(g,tpl)
 
-  for catchment in catchments:
-      src = catchment['properties']['name']
-      link = links.find_one_by_id(catchment['properties']['link'])
-      ds_node = link['properties']['to_node']
-      try:
-          ds_link = links.find_one_by_from_node(ds_node)
-          ds_catchment = catchments.find_one_by_link(ds_link['id'])
-      except:
-          ds_catchment = None
-
-      if ds_catchment is None:
-          print('%s is end of system'%src)
+  for _,catchment in catchments.iterrows():
+      src = catchment['name']
+      link = links[links.id==catchment['link']].iloc[0]
+      ds_node = link['to_node']
+      ds_links = links[links.from_node==ds_node]['id']
+      ds_catchments = catchments[catchments.link.isin(ds_links)]
+      if len(ds_catchments):
+          ds_catchment = ds_catchments.iloc[0]
+      else:
+          progress('%s is end of system'%src)
           continue
-      dest = ds_catchment['properties']['name']
 
-      print('%s -> %s'%(src,dest))
+      dest = ds_catchment['name']
+
+      progress('%s -> %s'%(src,dest))
       model_structure.link_catchments(g,src,dest)
+
+  if custom_processing is not None:
+      g = custom_processing(g)
 
   return templating.ModelGraph(g)
 
