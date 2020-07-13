@@ -80,6 +80,13 @@ class OWTemplate(object):
   def add_link(self,link):
     self.links.append(link)
 
+  def add_conditional_link(self,from_node,from_output,to_node,possibly_inputs,model):
+    for pi in possibly_inputs:
+      if pi in model.description['Inputs']:
+        self.add_link(OWLink(from_node,from_output,to_node,pi))
+        return True
+    return False
+
   def flatten(self):
     '''
     Generate a single, flat template containing all nested
