@@ -244,6 +244,14 @@ class  UniformInput(object):
             else:
               grp['inputs'][cell,input_num,:] = self.value
 
+class NestedParameteriser(object):
+    def __init__(self,nested=[]):
+        self.nested = nested[:]
+
+    def parameterise(self,model_desc,grp,instances,dims,nodes):
+        for np in self.nested:
+            np.parameterise(model_desc,grp,instances,dims,nodes)
+
 class CustomParameteriser(object):
     def __init__(self,fn,model=None,filter=None):
         self.model = model
