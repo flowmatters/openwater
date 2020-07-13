@@ -185,6 +185,11 @@ class OWNode(object):
 
 class OWLink(object):
   def __init__(self,from_node,from_output,to_node,to_input):
+    assert from_node is not None
+    assert from_output is not None
+    assert to_node is not None
+    assert to_input is not None
+
     self.from_node = from_node
     self.from_output = from_output
     self.to_node = to_node
