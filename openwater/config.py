@@ -142,8 +142,21 @@ class ParameterTableAssignment(object):
             self._parameterise_2d(model_desc,grp,instances,dims,nodes)
 
     def _parameterise_nd(self,model_desc,grp,instances,dims,nodes):
-        param_names = [p['Name'] for p in model_desc.description['Parameters']]
-        param_data = {p:grp['parameters'][i,:] for i,p in enumerate(param_names) if p in self.df.columns}
+        names = [p['Name'] for p in model_desc.description['Parameters']] + model_desc.description['States']
+        current_data = {}
+        for p in names:
+            if not p in self.df.columns:
+                continue
+            dest_grp,dest_idx0,dest_idx1 = self.locate(model_desc,p)
+            existing = grp[dest_grp][dest_idx0,dest_idx1]
+            try:
+                assert len(existing.shape)==1
+                assert existing.shape[0]>=len(nodes)
+            except:
+                print(dest_grp,dest_idx0,dest_idx1,p,existing.shape,len(nodes))
+                raise
+            current_data[p] = existing
+
         # param_data = {p:np.zeros(instances.size,dtype='float64') for i,p in enumerate(param_names) if p in self.df.columns}
         ignored = []
         for _,node in nodes.items():
@@ -159,28 +172,43 @@ class ParameterTableAssignment(object):
             if len(subset)==0 and not self.complete:
                 continue
 
+            if len(subset)>1:
+                for dc in self.dim_columns:
+                    if not dc in subset.columns:
+                        continue
+                    subset = subset[subset[dc]==node[dc]]
+
             if not len(subset)==1:
+                print('=== Model: %s ==='%model_desc.name)
+                print('=== Dims ===')
+                print(list(dims.keys()))
+                print('=== Node ===')
                 print(node)
+                print('=== Subset ===')
                 print(subset)
+                # print('=== Original ===')
+                # print(self.df)
                 assert len(subset)==1
 
             run_idx = node['_run_idx']
-            for p,arr in param_data.items():
+            for p,arr in current_data.items():
                 val = subset[p]
                 if self.skip_na:
                     val.fillna(0.0,inplace=True)
                 arr[run_idx] = val
 
-        for i,p in enumerate(param_names):
-            if not p in param_data:
-                print('--> No parameters for %s'%p)
-                continue
-            print('Applying parameters for %s'%p)
-            grp['parameters'][i,:]=param_data[p]
+        for p,vals in current_data.items():
+            # if not p in param_data:
+            #     print('--> No parameters for %s'%p)
+            #     continue
+            dest_grp, dest_idx0, dest_idx1 = self.locate(model_desc,p)
+            print('Applying %s for %s'%(dest_grp,p))
+            grp[dest_grp][dest_idx0,dest_idx1]=vals
 
     def _parameterise_2d(self,model_desc,grp,instances,dims,nodes):
-        param_idx = [i for i,p in enumerate(model_desc.description['Parameters']) if p['Name']==self.parameter][0]
-        print(param_idx)
+        dest_grp, dest_idx0, dest_idx1 = self.locate(model_desc,self.parameter)
+        print(dest_grp,dest_idx0,dest_idx1)
+
         param_data = np.zeros(instances.size,dtype='float64')
         for _,node in nodes.items():
             run_idx = node['_run_idx']
@@ -194,7 +222,19 @@ class ParameterTableAssignment(object):
             param_data[run_idx] = param
 
         print(param_data)
-        grp['parameters'][param_idx,:]=param_data
+        grp[dest_grp][dest_idx0,dest_idx1]=param_data
+
+    def locate(self,model_desc,parameter):
+        matching_params = [i for i,p in enumerate(model_desc.description['Parameters']) if p['Name']==parameter]
+        if len(matching_params):
+            return 'parameters',matching_params[0],slice(None)
+
+        if parameter in model_desc.description['States']:
+            state_index = model_desc.description['States'].index(parameter)
+            #[i for i,s in enumerate(model_desc.description['States']) if s['Name']==parameter]
+            return 'states',slice(None),state_index
+
+        raise Exception('Unknown parameter or state: %s'%parameter)
 
 class DefaultParameteriser(object):
     def __init__(self,model_name=None,**kwargs):
