@@ -678,12 +678,15 @@ class ModelGraph(object):
 
         models = {nodes[n][TAG_MODEL] for n in nodes}
         self.model_batches = {}
-        for m in models:
+        for mx,m in enumerate(models):
+            model_msg ='Writing model %s (%d/%d)'%(m,mx+1,len(models))
+            init_timer(model_msg)
+            print(model_msg)
             model_grp = models_grp.create_group(m)
 
             model_nodes = [n for n in nodes if nodes[n][TAG_MODEL]==m]
             processes_for_model = {nodes[n][TAG_PROCESS] for n in model_nodes}
-            assert(len(processes_for_model)==1) # not necessary?
+            # assert(len(processes_for_model)==1) # not necessary?
 
             dims,attributes,instances = self._map_process(model_nodes)
             ds = model_grp.create_dataset('map',dtype=instances.dtype,data=instances,fillvalue=-1)
@@ -723,7 +726,14 @@ class ModelGraph(object):
 
             if (self._parameteriser is not None) and (desc is not None):
                 node_dict = {n:nodes[n] for n in model_nodes}
-                self._parameteriser.parameterise(model_meta,model_grp,instances,dims,node_dict)
+                nodes_df = pd.DataFrame([nodes[n] for n in model_nodes])
+                for k,v in attributes.items():
+                    nodes_df[k] = v
+                full_dims = dict(**dims,**attributes)
+                init_timer('Parameterisation')
+                self._parameteriser.parameterise(model_meta,model_grp,instances,full_dims,node_dict,nodes_df)
+                close_timer()
+            close_timer()
 
     def gen_index(self,node):
         global_idx = node['_run_idx']

@@ -1,5 +1,6 @@
 from string import Template
 import numpy as np
+import pandas as pd
 
 def _models_match(configured,trial):
     if configured is None:
@@ -17,9 +18,9 @@ class Parameteriser(object):
     def append(self,parameteriser):
         self._parameterisers.append(parameteriser)
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
         for p in self._parameterisers:
-            p.parameterise(model_desc,grp,instances,dims,nodes)
+            p.parameterise(model_desc,grp,instances,dims,nodes,nodes_df)
 
 class DataframeInput(object):
     def __init__(self,dataframe,column_format):
@@ -43,7 +44,7 @@ class DataframeInputs(object):
             self._inputs[input_name] = []
         self._inputs[input_name].append(DataframeInput(df,col_format))
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
         description = model_desc.description
         inputs = description['Inputs']
         if not len(set(inputs).intersection(set(self._inputs.keys()))):
@@ -82,7 +83,7 @@ class SingleTimeseriesInput(object):
         self.the_input = the_input
         self.tags = tags
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
         if not _models_match(self.model,model_desc):
             return
 
@@ -130,18 +131,18 @@ class ParameterTableAssignment(object):
         self.complete = complete
         self.skip_na = skip_na
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
         if not _models_match(self.model,model_desc):
             return
 
         print('Applying parameter table to %s'%model_desc.name)
 
         if None in [self.column_dim,self.row_dim,self.parameter is None]:
-           self._parameterise_nd(model_desc,grp,instances,dims,nodes)
+           self._parameterise_nd(model_desc,grp,instances,dims,nodes,nodes_df)
         else:
             self._parameterise_2d(model_desc,grp,instances,dims,nodes)
 
-    def _parameterise_nd(self,model_desc,grp,instances,dims,nodes):
+    def _parameterise_nd(self,model_desc,grp,instances,dims,nodes,nodes_df):
         names = [p['Name'] for p in model_desc.description['Parameters']] + model_desc.description['States']
         current_data = {}
         for p in names:
@@ -159,43 +160,62 @@ class ParameterTableAssignment(object):
 
         # param_data = {p:np.zeros(instances.size,dtype='float64') for i,p in enumerate(param_names) if p in self.df.columns}
         ignored = []
-        for _,node in nodes.items():
-            subset = self.df
-            for dim in dims.keys():
-                if not dim in subset.columns:
-                    if not dim in ignored:
-                        print('%s not specified in table, ignoring'%dim)
-                    ignored.append(dim)
-                    continue
-                subset = subset[subset[dim]==node[dim]]
+        # print('model',model_desc)
+        # print('nodes_df',len(nodes_df),nodes_df.columns)
+        # print('df',len(self.df),self.df.columns)
+        join_keys = set(dims.keys()).intersection(set(self.df.columns))
+        # print('join_keys',join_keys)
+        joined = pd.merge(nodes_df,self.df,how='inner',on=list(join_keys))
+        # print('joined',len(joined),joined.columns)
 
-            if len(subset)==0 and not self.complete:
-                continue
+        indices = np.array(joined._run_idx)
+        for p,arr in current_data.items():
+            srs = joined[p]
+            if self.skip_na:
+                srs.fillna(0.0,inplace=True)
+            arr[indices] = np.array(srs)
 
-            if len(subset)>1:
-                for dc in self.dim_columns:
-                    if not dc in subset.columns:
-                        continue
-                    subset = subset[subset[dc]==node[dc]]
+        # if True:
+        #     raise Exception('BOO')
 
-            if not len(subset)==1:
-                print('=== Model: %s ==='%model_desc.name)
-                print('=== Dims ===')
-                print(list(dims.keys()))
-                print('=== Node ===')
-                print(node)
-                print('=== Subset ===')
-                print(subset)
-                # print('=== Original ===')
-                # print(self.df)
-                assert len(subset)==1
+        # for _,node in nodes.items():
+        #     # TODO: very slow. could we have a dataframe of all the nodes with tags and join them?
+        #     subset = self.df
+        #     for dim in dims.keys():
+        #         if not dim in subset.columns:
+        #             if not dim in ignored:
+        #                 print('%s not specified in table, ignoring'%dim)
+        #             ignored.append(dim)
+        #             continue
+        #         subset = subset[subset[dim]==node[dim]]
 
-            run_idx = node['_run_idx']
-            for p,arr in current_data.items():
-                val = subset[p]
-                if self.skip_na:
-                    val.fillna(0.0,inplace=True)
-                arr[run_idx] = val
+        #     if len(subset)==0 and not self.complete:
+        #         continue
+
+        #     if len(subset)>1:
+        #         for dc in self.dim_columns:
+        #             if not dc in subset.columns:
+        #                 continue
+        #             subset = subset[subset[dc]==node[dc]]
+
+        #     if not len(subset)==1:
+        #         print('=== Model: %s ==='%model_desc.name)
+        #         print('=== Dims ===')
+        #         print(list(dims.keys()))
+        #         print('=== Node ===')
+        #         print(node)
+        #         print('=== Subset ===')
+        #         print(subset)
+        #         # print('=== Original ===')
+        #         # print(self.df)
+        #         assert len(subset)==1
+
+        #     run_idx = node['_run_idx']
+        #     for p,arr in current_data.items():
+        #         val = subset[p]
+        #         if self.skip_na:
+        #             val.fillna(0.0,inplace=True)
+        #         arr[run_idx] = val
 
         for p,vals in current_data.items():
             # if not p in param_data:
@@ -241,7 +261,7 @@ class DefaultParameteriser(object):
         self._model = model_name
         self._params = kwargs
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
         if not _models_match(self._model,model_desc):
             return
 
@@ -256,7 +276,7 @@ class UniformParameteriser(object):
         self._model = model_name
         self._params = kwargs
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
         if not _models_match(self._model,model_desc):
             return
 
@@ -272,7 +292,7 @@ class  UniformInput(object):
         self.input_name = input_name
         self.value = val
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
       inputs = model_desc.description['Inputs']
       for input_num,input_name in enumerate(inputs):
           if input_name!=self.input_name:
@@ -288,9 +308,9 @@ class NestedParameteriser(object):
     def __init__(self,nested=[]):
         self.nested = nested[:]
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
         for np in self.nested:
-            np.parameterise(model_desc,grp,instances,dims,nodes)
+            np.parameterise(model_desc,grp,instances,dims,nodes,nodes_df)
 
 class CustomParameteriser(object):
     def __init__(self,fn,model=None,filter=None):
@@ -298,8 +318,8 @@ class CustomParameteriser(object):
         self.fn = fn
         self.filter = None
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
         if not _models_match(self.model,model_desc):
             return
 
-        self.fn(model_desc,grp,instances,dims,nodes)
+        self.fn(model_desc,grp,instances,dims,nodes,nodes_df)
