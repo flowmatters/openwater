@@ -9,9 +9,11 @@ Only workable in limited circumstances:
 '''
 import os
 import numpy as np
+import pandas as pd
 from openwater.catchments import SemiLumpedCatchment
 import openwater.template as templating
 from openwater.config import Parameteriser, ParameterTableAssignment
+from openwater.timing import init_timer, report_time, close_timer
 
 MODEL_LOOKUP = {}
 STANDARD_SOURCE_COLUMN_TRANSLATIONS = {
@@ -87,6 +89,7 @@ def link_catchment_lookup(network):
   return res
 
 def build_catchment_graph(model_structure,network,progress=print,custom_processing=None):
+  init_timer('Sort features')
   if hasattr(network,'as_dataframe'):
     network = network.as_dataframe()
 
@@ -95,32 +98,65 @@ def build_catchment_graph(model_structure,network,progress=print,custom_processi
   nodes = network[network.feature_type=='node']
 
   g = None
-
+  report_time('Build catchments')
   for _,catchment in catchments.iterrows():
       tpl = model_structure.get_template(catchment=catchment['name']).flatten()
       g = templating.template_to_graph(g,tpl)
 
-  for _,catchment in catchments.iterrows():
-      src = catchment['name']
-      link = links[links.id==catchment['link']].iloc[0]
-      ds_node = link['to_node']
-      ds_links = links[links.from_node==ds_node]['id']
-      ds_catchments = catchments[catchments.link.isin(ds_links)]
-      if len(ds_catchments):
-          ds_catchment = ds_catchments.iloc[0]
-      else:
-          progress('%s is end of system'%src)
-          continue
+  report_time('Link catchments')
+  c2l = pd.merge(catchments[['name','link']],links[['id','from_node','to_node']],left_on='link',right_on='id',how='inner')
+  c2l['from_name'] = c2l['name']
+  c2l['to_name'] = c2l['name']
+  join_table = pd.merge(c2l[['from_name','link','to_node']],c2l[['to_name','from_node']],left_on='to_node',right_on='from_node',how='inner')
+  froms = list(join_table.from_name)
+  tos = list(join_table.to_name)
+  for from_c,to_c in zip(froms,tos):
+      model_structure.link_catchments(g,from_c,to_c)
 
-      dest = ds_catchment['name']
+#   for _,feature in join_table.iterrows():
+#       model_structure.link_catchments(g,feature['from_name'],feature['to_name'])
+    #   src = feature['name']
+    #   #link = links[links.id==catchment['link']].iloc[0]
+    #   ds_node = feature['to_node']
+    #   ds_links = links[links.from_node==ds_node]['id']
+    #   ds_catchments = catchments[catchments.link.isin(ds_links)]
+    #   if len(ds_catchments):
+    #       ds_catchment = ds_catchments.iloc[0]
+    #   else:
+    #       progress('%s is end of system'%src)
+    #       continue
 
-      progress('%s -> %s'%(src,dest))
-      model_structure.link_catchments(g,src,dest)
+    #   dest = ds_catchment['name']
+
+    #   progress('%s -> %s'%(src,dest))
+    #   model_structure.link_catchments(g,src,dest)
+
+#   for _,catchment in catchments.iterrows():
+#       src = catchment['name']
+#       link = links[links.id==catchment['link']].iloc[0]
+#       ds_node = link['to_node']
+#       ds_links = links[links.from_node==ds_node]['id']
+#       ds_catchments = catchments[catchments.link.isin(ds_links)]
+#       if len(ds_catchments):
+#           ds_catchment = ds_catchments.iloc[0]
+#       else:
+#           progress('%s is end of system'%src)
+#           continue
+
+#       dest = ds_catchment['name']
+
+#       progress('%s -> %s'%(src,dest))
+#       model_structure.link_catchments(g,src,dest)
 
   if custom_processing is not None:
+      report_time('Custom graph processing')
       g = custom_processing(g)
 
-  return templating.ModelGraph(g)
+  report_time('Initialise ModelGraph') # About 3/4 of time (mostly in compute simulation order)
+  res = templating.ModelGraph(g)
+  close_timer()
+
+  return res
 
 def build_parameter_lookups(target):
     result = {}
