@@ -9,6 +9,7 @@ import pandas as pd
 import networkx as nx
 from functools import reduce
 from . import nodes as node_types
+from .timing import init_timer, report_time, close_timer
 
 # Non blocking IO solution from http://stackoverflow.com/a/4896288
 ON_POSIX = 'posix' in sys.builtin_module_names
@@ -295,17 +296,28 @@ def flatten(l_of_l):
     return [item for sublist in l_of_l for item in sublist]
 
 descendants_by_node={}
+imm_descendants_by_node={}
 # cache_queries = 0
 # cache_misses = 0
 def descendants_cached(g,n):
     # global cache_queries, cache_misses
     # cache_queries += 1
+
     if not n in descendants_by_node:
         # cache_misses += 1
         descendants_by_node[n] = nx.descendants(g,n)
     return descendants_by_node[n]
 
+    # return list(node_descendent_df[node_descendent_df[n]].index)
+
+def immediate_descendants_cached(g,n):
+    if not n in imm_descendants_by_node:
+        # cache_misses += 1
+        imm_descendants_by_node[n] = set(g.successors(n))
+    return imm_descendants_by_node[n]
+
 def bring_forward(g,stages):
+    init_timer('bring_forward')
     first_small_stage = find_first_small_stage(stages)
     for i in range(first_small_stage,len(stages)-1):
         si = stages[i]
@@ -318,23 +330,31 @@ def bring_forward(g,stages):
         candidates = [n for n in si1 if not n in all_descendents]
         if len(candidates):
             stages[i] += candidates
-            stages[i+1] = [n for n in stages[i+1] if not n in candidates]
+            stages[i+1] = list(set(stages[i+1]) - set(candidates)) # [n for n in stages[i+1] if not n in candidates] # set difference?
     stages = [s for s in stages if len(s)]
+    close_timer()
     return stages
 
 def latest_possible(g,n,n_stages,node_stages):
     current = node_stages[n]
-    lowest = n_stages
+    next_stage = current+1
+    descendants = immediate_descendants_cached(g,n)
+    # descendent_stages = np.array([node_stages[d] for d in descendants])
+    # earliest_descendent = descendent_stages.min()
+    # return earliest_descendent - 1
 
-    descendants = descendants_cached(g,n)
+    lowest = n_stages
     for d in descendants:
         descendent_stage = node_stages[d]
-        if descendent_stage == 0:
-            print(n,d,n_stages,current,descendent_stage,lowest)
-        if descendent_stage == (current+1):
+        # if descendent_stage == 0:
+        #     print(n,d,n_stages,current,descendent_stage,lowest)
+        if descendent_stage >= lowest:
+            continue
+        if descendent_stage == next_stage:
             return current
-        if descendent_stage < lowest:
-            lowest = descendent_stage
+        lowest = descendent_stage
+        # if descendent_stage < lowest:
+        #     lowest = descendent_stage
     if not lowest:
         print(n,current,n_stages,d,descendent_stage)
         raise Exception('Boo')
@@ -377,25 +397,31 @@ def latest_possible(g,n,n_stages,node_stages):
 #     stages = [s for s in stages if len(s)]
 #     return stages
 
-
+# @profile
 def push_back_ss(g,stages):
+  init_timer('push_back_ss')
   to_remove = {n:[] for n in range(len(stages))}
   to_add = {n:[] for n in range(len(stages))}
   
-  first_small_stage = find_first_small_stage(stages)
+#   first_small_stage = find_first_small_stage(stages)
 
   visited = {}
+#   init_timer('map node stages')
   node_stages = map_stages(stages)
+#   close_timer()
+
   count = 0
   nodes_downstream = 0
 #  global shifts
   for i in range(len(stages)-1,-1,-1):
+    # init_timer('stage %d'%i)
     stage_nodes = list(set(stages[i]).union(set(to_add[i])) - set(to_remove[i]))
     stages[i] = stage_nodes
     nodes_downstream += len(stage_nodes)
     for n in stage_nodes:
-      if (n in visited) and visited[n]==i:
-        # Node visited as an ancestor and not moved, so no reason to look further at ancestors
+      already_visited = n in visited
+      if already_visited and visited[n]==i:
+        # Node last visited as an ancestor and not moved, so no reason to look further at ancestors
         continue
       ancestors = ancestors_by_node[n]
       for a in ancestors:
@@ -415,27 +441,43 @@ def push_back_ss(g,stages):
         #print(i,n,a,current_stage,new_stage)
         #count += 1
         #assert(count<10)
+    # close_timer()
   stages = [s for s in stages if len(s)]
+  close_timer()
   return stages
 
 def compute_simulation_order(graph):
+  init_timer('compute_simulation_order')
+  init_timer('Get basic order')
   global descendants_by_node
   descendants_by_node = {}
   g = graph
   sequential_order = list(nx.topological_sort(g))
-  global ancestors_by_node
+  global ancestors_by_node #, node_ancestry_df, node_descendent_df
   ancestors_by_node,by_node_type_gen,node_gen = group_run_order(g)
   stages = assign_stages(sequential_order,node_gen,by_node_type_gen)
   stages = [s for s in stages if len(s)]
 
+#   report_time('create node ancestry dataframe for %d nodes'%len(ancestors_by_node))
+#   node_ancestry_df = pd.DataFrame(data=False,index=list(g.nodes),columns=list(g.nodes))
+#   for k,ancestors in ancestors_by_node.items():
+#       node_ancestry_df[k][ancestors] = True
+#   node_descendent_df = node_ancestry_df.transpose()
+  report_time('Grouping model stages/generations')
+
   n_stages = len(stages)
   new_n_stages = 0
+  iteration = 1
   while new_n_stages<n_stages:
+    init_timer('Iteration %d'%iteration)
     n_stages = len(stages)
     stages = bring_forward(g,stages)
     stages = push_back_ss(g,stages)
     new_n_stages = len(stages)
-
+    iteration += 1
+    close_timer()
+  close_timer()
+  close_timer()
   return stages
 
 def tag_set(nodes):
@@ -466,7 +508,9 @@ class ModelGraph(object):
             self.initialise()
 
     def initialise(self):
+        init_timer('Compute simulation order')
         self.order = compute_simulation_order(self._graph)
+        report_time('Tag nodes')
         for i,gen in enumerate(self.order):
             for node in gen:
                 self._graph.nodes[node][TAG_GENERATION]=i
@@ -482,10 +526,11 @@ class ModelGraph(object):
         tags_by_process_and_model = {p:list(tag_set(nodes)-set(META_TAGS)) for p,nodes in nodes_by_process_and_model.items()}
         self.all_tags = set().union(*tags_by_process_and_model.values())
         self.distinct_values = {t:sorted(set([nodes[n][t] for n in nodes if t in nodes[n]])) for t in self.all_tags}
-
+        report_time('Assign runtime metadata')
         for pm in proc_models:
             node = nodes_by_process_and_model[pm][0]
             self.assign_run_indices(node[TAG_PROCESS],node[TAG_MODEL])
+        close_timer()
 
     def assign_run_indices(self,proc,model_type):
         '''
@@ -516,6 +561,8 @@ class ModelGraph(object):
         return  {n:self._graph.nodes[n] for n in self._graph.nodes if tags_match(self._graph.nodes[n])}
 
     def write_model(self,f,timesteps=DEFAULT_TIMESTEPS):
+        init_timer('Write model file')
+        init_timer('Write meta and dimensions')
         close = False
         if hasattr(f,'upper'):
             import h5py
@@ -527,11 +574,15 @@ class ModelGraph(object):
         try:
             self._write_meta(h5f)
             self._write_dimensions(h5f)
+            report_time('Write model groups')
             self._write_model_groups(h5f,timesteps)
+            report_time('Write links')
             self._write_links(h5f)
         finally:
             if close: h5f.close()
         self._last_write=f
+        close_timer()
+        close_timer()
 
     def run(self,time_period,model_fn=None,results_fn=None,**kwargs):
         '''
