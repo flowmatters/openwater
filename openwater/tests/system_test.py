@@ -65,7 +65,7 @@ class ScaledTimeSeriesParameteriser(object):
         self.model = model
         self.scales = kwargs
     
-    def parameterise(self,model_desc,grp,instances,dims,nodes):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
         if not config._models_match(self.model,model_desc):
             return
 
