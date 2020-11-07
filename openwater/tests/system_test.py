@@ -118,7 +118,7 @@ class TestOWSim(unittest.TestCase):
 
         model.write_model(MODEL_FN,N_TIMESTEPS)
         print(glob('*.h5'))
-        cmd_line = '%s -overwrite %s %s'%(os.path.join(discovery._exe_path('sim')),MODEL_FN,RESULTS_FN)
+        cmd_line = '%s -verbose -overwrite %s %s'%(os.path.join(discovery._exe_path('sim')),MODEL_FN,RESULTS_FN)
         print('Running: ',cmd_line)
         exit_code = os.system(cmd_line)
         if exit_code:
