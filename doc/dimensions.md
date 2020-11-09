@@ -58,6 +58,15 @@ and, finally, to the CGU template:
 ![Tags propogated to indivdual model nodes](figures/Dimensions-Catchments-Catchment-CGU.png)
 
 
+## Identifying nodes with tags
+
+With the propagation of tags from templates down to individual nodes, each node in the model graph can be identified by its unique combination of tag values.
+
+So, for example, it is possible to extract the timeseries of constituent load from the constituent generation model node for constituent (`Cons`) `TSS`, in the `Ag` `CGU` in subcatchment (`SC`) 1.
+
+It is also possible, and often useful, to be able to identify a group of model nodes by specifying only a subset of tags. So, for example, specifying `CGU=Ag` and `Cons=TP` would match the corresponding constituent generation model nodes in all three subcatchments. This type of broad node matching is used heavily in the [parameterisation of models](parameterisation.md) and when [retrieving results](reporting.md).
+
+
 
 
 
