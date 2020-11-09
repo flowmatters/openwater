@@ -1,6 +1,6 @@
 # Graph concepts
 
-This notebook elaborates on the graph structure of Openwater models, including how the graph is translated to an execution plan, and how useful metadata is captured to help with model parameterisation and reporting.
+This document elaborates on the graph structure of Openwater models, including how the graph is translated to an execution plan, and how useful metadata is captured to help with model parameterisation and reporting.
 
 ## Openwater Graphs
 
