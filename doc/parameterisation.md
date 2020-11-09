@@ -46,6 +46,8 @@ There are four main ways to apply model parameters:
 3. Specify a table of values for a *single* model parameter, where the column headers for the table identify the value of one tag type and the index (row headers) of the table identify the value of a second tag type, and
 4. Specify a table containing one or more model parameters, in labelled columns, where other labelled columns specify the values of tag types used to match model nodes.
 
+These four approaches are intended to work with a wide range of ways in which data may be organised for use with the model.
+
 ### Default parameters
 
 
@@ -54,23 +56,71 @@ There are four main ways to apply model parameters:
 
 ### Tables of single parameter
 
+A single model parameter can be configured from a table (Pandas Dataframe) of values. For example, given the following table of land use areas, where the columns represent the subcatchment and the rows represent particular land uses:
+
 ![Table of land use areas](figures/Parameterise-Table-2D.png)
 
+The `area` parameter can be configured as follows
 
 ![Table of land use areas](figures/Parameterise-Table-2D-Code.png)
 
+In this case, the `areas` data frame is applied to model nodes using the `DepthToRate` model (a model used to scale runoff depth to volumetric runoff). The `area` parameter of `DepthToRate` is set, with the table values being applied to nodes with particular `catchment` and `CGU` tags according to the column headers and row headers. If there are more than one model nodes using `DepthToRate`, matching a particular combination of `catchment` and `CGU`, the corresponding area will be applied to _all_ matching model nodes. For example, in the case studies discussing [templates](templates.md) and [dimensions](dimensions.md), there are separate scaling nodes for three different runoff components (quickflow, slowflow and total runoff), which would all receive the same `area` values.
+
 ### Tables of multiple parameters
+
+In other cases, a single table may represent multiple model parameters, such as the following, which contains the `eventMeandConcentration` and `dryWeatherConcentration` parameters for the `EMCDWC` model.
 
 ![Table of land use areas](figures/Parameterise-Table-ND.png)
 
+The table also has columns that determine the nodes that should receive particular parameters: `Catchment`, `Functional Unit` and `Constituent`.
+
+```python
+ParameterTableAssignment(data_frame,'EmcDwc',dim_columns=['Catchment', 'Functional Unit', 'Constituent'])
+```
+
+In this approach, `ParameterTableAssignment` will, by default, expect the `data_frame` to contain parameters for _every_ model node using the specified model (`EmcDwc`). If the table only contains values for a subset of nodes, `complete=False` can be specified.
+
+```python
+ParameterTableAssignment(data_frame,'EmcDwc',dim_columns=['Catchment', 'Functional Unit', 'Constituent'],complete=False)
+```
 
 ## Applying input time series
 
+Input timeseries can be loaded into the model from a table (again, a Pandas Data Frame), where the columns store individual timeseries and the column heades are used to identify the node, or nodes, to which the data should be applied.
+
+Here, the column header specifies the `catchment` that the data applies to
+
 ![Table of land use areas](figures/Parameterise-Timeseries.png)
 
+The time series can be applied to the model by specifying the format of the column headers, with any text of the form `${tagname}` used to substittue the values of particular tags:
 
 ![Table of land use areas](figures/Parameterise-Timeseries-Code.png)
 
+Here, because the column header is simply the value of the `catchment` tag, the naming convention parameter is simply `'${catchment}'`. A given column will be matched to all model nodes, with a matching `catchment` tag and an input timeseries named `rainfall`. In this way, the data input may apply to different model types.
+
+If the column headers follow a different naming convention, this can be specified. For example, if the columns are named along the lines of
+
+```
+rainfall for catchment 52
+```
+
+where only the number is relevant in the `catchment` tag, the naming parameter would be
+
+```python
+'rainfall for catchment ${catchment}'
+```
+
+Similarly, if column naming convention relates to multiple tags, these can be specified. So, if the convention is along the lines of:
+
+```
+rainfall for Agriculture in catchment 52
+```
+
+Then the naming parameter would be
+
+```python
+'rainfall for ${cgu} in catchment ${catchment}'
+```
 
 ## Custom parameterisation logic
 
