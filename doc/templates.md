@@ -53,15 +53,15 @@ can be represented by copying the subcatchment template:
 
 When building a model graph from copies of graph templates, it is common to make connections across templates, such as connecting the catchments according to the hydrological topology:
 
-![Simple view of connections between templates](figures/Graph-MultpleCatchments-Connected.png)
+![Simple view of connections between templates](figures/Graph-MultipleCatchments-Connected.png)
 
 Importantly, the connections between _templates_, is, ultimately, a connection between two nodes (and specific outputs and inputs). So, for example, the connection between catchments would include connection between correspdoning constituent transport model nodes:
 
-![Simple view of connections between templates](figures/Graph-MultpleCatchments-NodeConnections.png)
+![Simple view of connections between templates](figures/Graph-MultipleCatchments-NodeConnections.png)
 
 Indeed, there can be many connections between templates, mapping between different pairs of nodes:
 
-![Simple view of connections between templates](figures/Graph-MultpleCatchments-AllNodeConnections.png)
+![Simple view of connections between templates](figures/Graph-MultipleCatchments-AllNodeConnections.png)
 
 ## Graph Templates in practice
 
