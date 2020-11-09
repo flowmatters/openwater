@@ -21,7 +21,7 @@ At a minimum, each model node using a particular component model, must be distin
 
 So, in the rainfall runoff and constituent generation example, the scaling model nodes (red) would require attributes, as would the constituent generation model nodes (orange):
 
-!(Minimum attribute requirements)[figures/Dimensions-CGU.png]
+![Minimum attribute requirements](figures/Dimensions-CGU.png)
 
 The constituent generation nodes are tagged for the constituent represented, with the `Cons` tag type and attribute values `TSS`, `TP` and `TN`. The scaling nodes are tagged with the different runoff components output by the rainfall runoff model, using the `Comp` tag type and the `Quick`, `Slow` and `Total` values.
 
@@ -33,7 +33,7 @@ Attributes are necessary to uniquely identify model nodes, when a particular com
 
 However, when the graph becomes a template and is used to create multiple 'Constituent Generation Units', we need to introduce more attributes:
 
-!(Attributes with multiple CGUs)[figures/Dimensions-Catchment.png]
+![Attributes with multiple CGUs](figures/Dimensions-Catchment.png)
 
 Here, each copy of the graph template is assigned a `CGU` tag, identifying the different area (here, a land use) being modelled, and the constituent transport model nodes require tags for the different constituents.
 
@@ -41,21 +41,21 @@ The constituent transport model nodes use the same tag type, `Cons`, as was used
 
 While the above figure shows the `CGU` tag being applied to the graph template, in reality, the tags are assigned to _every_ model node within the template:
 
-!(Tags propagated to model nodes)[figures/Dimensions-Catchment-CGU.png]
+![Tags propagated to model nodes](figures/Dimensions-Catchment-CGU.png)
 
 Now, the rainfall runoff model nodes are tagged with the `CGU` tag type, while the other nodes in the template have the `CGU` tag type added to their existing tags.
 
 This approach continues as model graphs are built up from templates. So, for example, as catchments are created and tagged with a `SC` tag type:
 
-!(Tags at the catchment level)[figures/Dimensions-Catchments.png]
+![Tags at the catchment level](figures/Dimensions-Catchments.png)
 
 the `SC` tag propagates to the subcatchment template:
 
-!(Tags propagated to intermediate template)[figures/Dimensions-Catchments-Catchment.png]
+![Tags propagated to intermediate template](figures/Dimensions-Catchments-Catchment.png)
 
 and, finally, to the CGU template:
 
-!(Tags propogated to indivdual model nodes)[figures/Dimensions-Catchments-Catchment-CGU.png]
+![Tags propogated to indivdual model nodes](figures/Dimensions-Catchments-Catchment-CGU.png)
 
 
 
