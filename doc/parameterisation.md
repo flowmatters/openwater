@@ -122,6 +122,15 @@ Then the naming parameter would be
 'rainfall for ${cgu} in catchment ${catchment}'
 ```
 
+## Sequence of parameterisation
+
+This document has described different approaches to configuring parameters and input timeseries for model graphs. In practice, a number of these are used and some will be required more than once for a given model, such as for configuring different input timeseries or configuring parameters for different models.
+
+Multiple parameterisation 'actions' can be configured in a sequence that gets executed when the model file is written to disk.
+
+In practice, this will typically mean that broader actions, such as applying default parameters, will occur first, followed by progressively more specific actions. It is possible, and expected, that later actions will overwrite at least some of the effect of earlier actions.
+
+
 ## Custom parameterisation logic
 
 While the above parameterisation functionality covers a wide range of model setup situations, it is possible to write bespoke model parameterisation in Python. See for example:
