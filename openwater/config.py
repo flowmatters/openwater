@@ -12,7 +12,7 @@ def _models_match(configured,trial):
     return configured == trial.name
 
 def initialise_model_inputs(model_grp,n_cells,n_inputs,n_timesteps):
-    if not inputs in model_grp:
+    if not 'inputs' in model_grp:
         model_grp.create_dataset('inputs',shape=(n_cells,n_inputs,n_timesteps),dtype=np.float64,fillvalue=0)
 
 class Parameteriser(object):
