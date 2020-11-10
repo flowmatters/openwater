@@ -69,7 +69,7 @@ class DataframeInputs(object):
             for input_num,input_name in enumerate(inputs):
                 if not input_name in self._inputs:
                     continue
-                initialise_model_inputs(grp,instances.size,len(inputs),len(self._inputs[input_name]))
+                initialise_model_inputs(grp,instances.size,len(inputs),len(self._inputs[input_name][0]))
 
                 inputters = self._inputs[input_name]
                 for inputter in inputters:
