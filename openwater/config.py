@@ -11,6 +11,10 @@ def _models_match(configured,trial):
 
     return configured == trial.name
 
+def initialise_model_inputs(model_grp,n_cells,n_inputs,n_timesteps):
+    if not inputs in model_grp:
+        model_grp.create_dataset('inputs',shape=(n_cells,n_inputs,n_timesteps),dtype=np.float64,fillvalue=0)
+
 class Parameteriser(object):
     def __init__(self):
         self._parameterisers = []
@@ -21,6 +25,7 @@ class Parameteriser(object):
     def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
         for p in self._parameterisers:
             p.parameterise(model_desc,grp,instances,dims,nodes,nodes_df)
+
 
 class DataframeInput(object):
     def __init__(self,dataframe,column_format):
@@ -64,6 +69,8 @@ class DataframeInputs(object):
             for input_num,input_name in enumerate(inputs):
                 if not input_name in self._inputs:
                     continue
+                initialise_model_inputs(grp,instances.size,len(inputs),len(self._inputs[input_name]))
+
                 inputters = self._inputs[input_name]
                 for inputter in inputters:
                     data = inputter.get_series(**node)
@@ -288,15 +295,17 @@ class UniformParameteriser(object):
             grp['parameters'][param_num,:] = self._params[pname]
 
 class  UniformInput(object):
-    def __init__(self,input_name,val):
+    def __init__(self,input_name,val,length):
         self.input_name = input_name
         self.value = val
+        self._length = length
 
     def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
       inputs = model_desc.description['Inputs']
       for input_num,input_name in enumerate(inputs):
           if input_name!=self.input_name:
             continue
+          initialise_model_inputs(grp,instances.size,len(inputs),self._length)
           print('Uniform %s = %f'%(self.input_name,self.value))
           for cell in range(instances.size):
             if hasattr(self.value,'__call__'):
