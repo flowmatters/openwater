@@ -722,6 +722,8 @@ class ModelGraph(object):
 
             model_grp.create_dataset('parameters',shape=(n_params,n_cells),dtype=np.float64,fillvalue=0)
 
+            model_grp.create_dataset('inputs',shape=(n_cells,n_inputs,n_timesteps),dtype=np.float64,fillvalue=0)
+
             if (self._parameteriser is not None) and (desc is not None):
                 node_dict = {n:nodes[n] for n in model_nodes}
                 nodes_df = pd.DataFrame([nodes[n] for n in model_nodes])

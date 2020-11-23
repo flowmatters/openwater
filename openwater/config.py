@@ -69,7 +69,7 @@ class DataframeInputs(object):
             for input_num,input_name in enumerate(inputs):
                 if not input_name in self._inputs:
                     continue
-                initialise_model_inputs(grp,instances.size,len(inputs),len(self._inputs[input_name][0]))
+                # initialise_model_inputs(grp,instances.size,len(inputs),len(self._inputs[input_name][0]))
 
                 inputters = self._inputs[input_name]
                 for inputter in inputters:
@@ -305,7 +305,7 @@ class  UniformInput(object):
       for input_num,input_name in enumerate(inputs):
           if input_name!=self.input_name:
             continue
-          initialise_model_inputs(grp,instances.size,len(inputs),self._length)
+          #initialise_model_inputs(grp,instances.size,len(inputs),self._length)
           print('Uniform %s = %f'%(self.input_name,self.value))
           for cell in range(instances.size):
             if hasattr(self.value,'__call__'):
