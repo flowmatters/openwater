@@ -10,6 +10,7 @@ import networkx as nx
 from functools import reduce
 from . import nodes as node_types
 from .timing import init_timer, report_time, close_timer
+from itertools import chain
 
 # Non blocking IO solution from http://stackoverflow.com/a/4896288
 ON_POSIX = 'posix' in sys.builtin_module_names
@@ -585,11 +586,12 @@ class ModelGraph(object):
 
         try:
             self._write_meta(h5f)
-            self._write_dimensions(h5f)
             report_time('Write model groups')
             self._write_model_groups(h5f,timesteps)
             report_time('Write links')
             self._write_links(h5f)
+            report_time('Write dimensions')
+            self._write_dimensions(h5f)
         finally:
             if close: h5f.close()
         self._last_write=f
@@ -651,11 +653,24 @@ class ModelGraph(object):
             return set(keys) - set(META_TAGS)
 
         dimsets = {frozenset(dim_tags(n)) for n in node_set}
-        assert len(dimsets)==1 # don't support one process having different dimensions
+        all_dims = set(chain.from_iterable(dimsets))
+        # assert len(dimsets)==1 # don't support one process having different dimensions
         # Should at least support attributes (tags that only ever have one value)
-        dimensions = list(dimsets)[0]
+        dimensions = all_dims # list(dimsets)[0]
 
 #        dim_values = {d:sorted({nodes[n][d] for n in node_set}) for d in dimensions}
+        if len(dimsets) > 1:
+            print('Populating nodes with dummy dimension values')
+            for dim in dimensions:
+                added_dummy = False
+                dummy_val = f'dummy-{dim}'
+                for node in node_set:
+                    if not dim in nodes[node]:
+                        nodes[node][dim] = dummy_val
+                        if not added_dummy:
+                            self.distinct_values[dim].append(dummy_val)
+                            added_dummy = True
+
         dim_values = {d:sorted({nodes[n][d] for n in node_set}) for d in dimensions}
         attributes = {d:vals[0] for d,vals in dim_values.items() if (len(vals)==1) and (len(node_set)>1)}
         dimension_values = {d:vals for d,vals in dim_values.items() if (len(vals)>1) or (len(node_set)==1)}
