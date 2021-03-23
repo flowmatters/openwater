@@ -29,6 +29,8 @@ class SemiLumpedCatchment(object):
     self.transport = n.LumpedConstituentRouting
 
   def model_for(self,provider,*args):
+    if provider is None:
+        return None
     if hasattr(provider,'__call__'):
       return provider(*args)
     if hasattr(provider,'__getitem__'):
@@ -39,31 +41,47 @@ class SemiLumpedCatchment(object):
     tag_values = list(kwargs.values())
     template = OWTemplate()
 
-    routing_node = template.add_node(self.routing,process='FlowRouting',**kwargs)
+    routing_model = self.model_for(self.routing,*tag_values)
+    routing_node = template.add_node(routing_model,process='FlowRouting',**kwargs)
     transport = {}
     for con in self.constituents:
       # transport_node = 'Transport-%s'%(con)
-      transport_node = template.add_node(self.model_for(self.transport,con,*tag_values),process='ConstituentRouting',constituent=con,**kwargs)
-      template.add_link(OWLink(routing_node,'outflow',transport_node,'outflow'))
+      transport_model = self.model_for(self.transport,con,*tag_values)
+      if transport_model is None:
+          transport[con]=None
+          continue
+
+      transport_node = template.add_node(transport_model,process='ConstituentRouting',constituent=con,**kwargs)
+      if transport_node.has_input('outflow'):
+          template.add_link(OWLink(routing_node,'outflow',transport_node,'outflow'))
       transport[con]=transport_node
 
     runoff = {}
     for hru in self.hrus:
-      runoff_node = template.add_node(self.model_for(self.rr,hru,*tag_values),process='RR',hru=hru,**kwargs)
+      runoff_model = self.model_for(self.rr,hru,*tag_values)
+      if runoff_model is None: continue
+
+      runoff_node = template.add_node(runoff_model,process='RR',hru=hru,**kwargs)
       runoff[hru] = runoff_node
 
     for cgu in self.cgus:
-      runoff_node = runoff[self.cgu_hrus.get(cgu,cgu)]
+      runoff_node = runoff.get(self.cgu_hrus.get(cgu,cgu))
+      if runoff_node is None:
+          continue
 
       runoff_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Runoff',**kwargs)
       quickflow_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Quickflow',**kwargs)
       baseflow_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Baseflow',**kwargs)
 
-      template.add_link(OWLink(runoff_node,'runoff',runoff_scale_node,'input'))      
-      template.add_link(OWLink(runoff_node,'quickflow',quickflow_scale_node,'input'))      
-      template.add_link(OWLink(runoff_node,'baseflow',baseflow_scale_node,'input'))      
+      template.add_link(OWLink(runoff_node,'runoff',runoff_scale_node,'input'))
+      template.add_link(OWLink(runoff_node,'quickflow',quickflow_scale_node,'input'))
+      template.add_link(OWLink(runoff_node,'baseflow',baseflow_scale_node,'input'))
 
-      template.add_link(OWLink(runoff_scale_node,'outflow',routing_node,'lateral'))
+      if routing_model.name=='Lag':
+        catchment_inflow_flux = 'inflow'
+      else:
+        catchment_inflow_flux = 'lateral'
+      template.add_link(OWLink(runoff_scale_node,'outflow',routing_node,catchment_inflow_flux))
 
       for con in self.constituents:
         gen_node = template.add_node(self.model_for(self.cg,con,cgu,*tag_values),process='ConstituentGeneration',constituent=con,cgu=cgu,**kwargs)
@@ -71,19 +89,55 @@ class SemiLumpedCatchment(object):
         template.add_link(OWLink(baseflow_scale_node,'outflow',gen_node,'baseflow'))
 
         transport_node = transport[con]
-        template.add_link(OWLink(gen_node,'totalLoad',transport_node,'lateralLoad'))
-        template.add_link(OWLink(runoff_scale_node,'outflow',transport_node,'inflow'))
+        if transport_node.has_input('lateralLoad'):
+          template.add_link(OWLink(gen_node,'totalLoad',transport_node,'lateralLoad'))
+          template.add_link(OWLink(runoff_scale_node,'outflow',transport_node,'inflow'))
+        else:
+          template.add_link(OWLink(gen_node,'totalLoad',transport_node,'inflow'))
+
+        if (self.routing is not None) and transport_node.has_input('outflow'):
+            template.add_link(OWLink(routing_node,'outflow',transport_node,'outflow'))
+            template.add_link(OWLink(routing_node,'storage',transport_node,'reachVolume'))
 
     return template
   
   def link_catchments(self,graph,upstream,downstream):
-    linkages = [('%s-FlowRouting ('+self.routing.name+')','outflow','inflow')] + \
-               [(('%%s-ConstituentRouting-%s ('+self.transport.name+')')%c,'outflowLoad','inflowLoad') for c in self.constituents]
-    for (lt,src,dest) in linkages:
-        src_node = lt%(str(upstream))
-        dest_node = lt%(str(downstream))#'%d/%s'%(to_cat,lt)
+    linkages = [(self.routing,'%s-FlowRouting (%s)',[])] + \
+               [(self.transport,('%%s-ConstituentRouting-%s (%%s)')%c,[c]) for c in self.constituents]
+    for (model_lookup,lt,lookup_args) in linkages:
+        us_model = self.model_for(model_lookup,upstream,*lookup_args)
+        ds_model = self.model_for(model_lookup,downstream,*lookup_args)
+
+        src_node = lt%(str(upstream),us_model.name)
+        dest_node = lt%(str(downstream),ds_model.name)#'%d/%s'%(to_cat,lt)
+
+        if graph_node_has_flux(graph,src_node,'outflowLoad','Output'):
+            src = 'outflowLoad'
+        else:
+            src = 'outflow'
+
+        if graph_node_has_flux(graph,dest_node,'inflowLoad','Input'):
+            dest = 'inflowLoad'
+        else:
+            dest = 'inflow'
+
+        # n = graph.nodes[src_node]
+
+        check_graph_node_has_flux(graph,src_node,src,'Output')
+        check_graph_node_has_flux(graph,dest_node,dest,'Input')
+
         graph.add_edge(src_node,dest_node,src=[src],dest=[dest])
 
+def graph_node_has_flux(graph,node_name,flux_name,flux_type):
+    node = graph.node[node_name]
+    model_type_name = node['_model']
+    model_type = getattr(n,model_type_name)
+    model_description = model_type.description
+    return flux_name in model_description[f'{flux_type}s']
+
+def check_graph_node_has_flux(graph,node_name,flux_name,flux_type):
+    if not graph_node_has_flux(graph,node_name,flux_name,flux_type):
+        raise templating.InvalidFluxException(node_name,flux_name,flux_type)
 
 def delineate(dem,threshold,fill_pits=False):
   '''
