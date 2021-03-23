@@ -184,6 +184,12 @@ class OWNode(object):
   def __str__(self):
     return '%s (%s)'%(self.name,self.model_name)
 
+  def has_output(self,name):
+    return name in self.model_type.description['Outputs']
+
+  def has_input(self,name):
+    return name in self.model_type.description['Inputs']
+
 class OWLink(object):
   def __init__(self,from_node,from_output,to_node,to_input):
     assert from_node is not None
@@ -191,10 +197,16 @@ class OWLink(object):
     assert to_node is not None
     assert to_input is not None
 
+    if not from_node.has_output(from_output):
+        raise InvalidFluxException(from_node,from_output,'output')
+    if not to_node.has_input(to_input):
+        raise InvalidFluxException(to_node,to_input,'input')
+
     self.from_node = from_node
     self.from_output = from_output
     self.to_node = to_node
     self.to_input = to_input
+
 
 # class OWSystem(object):
 #   def __init__(self):
@@ -977,4 +989,11 @@ def ow_sim_flag_text(k,v):
     if v == True:
         return '-%s'%k
     return '-%s %s'%(k,str(v))
+
+class InvalidFluxException(Exception):
+    def __init__(self,node,flux_name,flux_type):
+        super(InvalidFluxException,self).__init__(f'Invalid flux: Node ({node}) has no {flux_type} named {flux_name}')
+        self.node = node
+        self.flux_type = flux_type
+        self.flux_name = flux_name
 
