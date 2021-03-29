@@ -938,7 +938,9 @@ def _run(time_period,model_fn=None,results_fn=None,**kwargs):
     # flags = ' '.join([ow_sim_flag_text(k,v) 
     cmd_line = [_exe_path('sim')]
     for k,v in kwargs.items():
-        cmd_line.append(ow_sim_flag_text(k,v))
+        flag_text = ow_sim_flag_text(k,v)
+        if len(flag_text):
+            cmd_line.append(flag_text)
     cmd_line.append(model_fn),
     cmd_line.append(results_fn)
     # "%s %s %s %s"%(_exe_path('sim'),flags,model_fn,results_fn)
