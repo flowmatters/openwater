@@ -88,6 +88,12 @@ def link_catchment_lookup(network):
 
   return res
 
+def filter_nodes(nodes):
+    IGNORE_NODES=['Confluence','Gauge','WaterUser']
+    for ignore in IGNORE_NODES:
+        nodes = nodes[~nodes.icon.str.contains(ignore)]
+    return nodes
+
 def build_catchment_graph(model_structure,network,progress=print,custom_processing=None):
   init_timer('Sort features')
   if hasattr(network,'as_dataframe'):
@@ -103,6 +109,14 @@ def build_catchment_graph(model_structure,network,progress=print,custom_processi
       tpl = model_structure.get_template(catchment=catchment['name']).flatten()
       g = templating.template_to_graph(g,tpl)
 
+  interesting_nodes = filter_nodes(nodes)
+  print(interesting_nodes[['id','name','icon']])
+  # TODO! Re-enable
+#   for _,node in interesting_nodes.iterrows():
+#       node_type = node['icon'].split('/')[-1].replace('NodeModel','')
+#       tpl = model_structure.get_node_template(node=node['name'],node_type=node_type).flatten()
+#       g = templating.template_to_graph(g,tpl)
+
   report_time('Link catchments')
   c2l = pd.merge(catchments[['name','link']],links[['id','from_node','to_node']],left_on='link',right_on='id',how='inner')
   c2l['from_name'] = c2l['name']
@@ -112,6 +126,9 @@ def build_catchment_graph(model_structure,network,progress=print,custom_processi
   tos = list(join_table.to_name)
   for from_c,to_c in zip(froms,tos):
       model_structure.link_catchments(g,from_c,to_c)
+
+  # Detect where we have a node of interest and link to it... (and from it to the next link)
+
 
 #   for _,feature in join_table.iterrows():
 #       model_structure.link_catchments(g,feature['from_name'],feature['to_name'])
