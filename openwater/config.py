@@ -28,13 +28,27 @@ class Parameteriser(object):
 
 
 class DataframeInput(object):
-    def __init__(self,dataframe,column_format):
+    def __init__(self,dataframe,column_format,model,constraint_tags):
         self.df = dataframe
+        self.model = model
+        self.constraint_tags = constraint_tags
+
         if isinstance(column_format,str):
             column_format = Template(column_format)
         self.column_format = column_format
 
+    def applies(self,model):
+        # TODO Check against model
+        return True
+
     def get_series(self,**kwargs):
+        # TODO Check against constraint tags
+        for k,v in (self.constraint_tags or {}).items():
+            if not k in kwargs:
+                return None
+            if kwargs[k] != v:
+                return None
+
         col_name = self.column_format.substitute(**kwargs)
         if col_name in self.df.columns:
             return np.array(self.df[col_name])
@@ -44,10 +58,10 @@ class DataframeInputs(object):
     def __init__(self):
         self._inputs = {}
     
-    def inputter(self,df,input_name,col_format):
+    def inputter(self,df,input_name,col_format,model=None,**kwargs):
         if not input_name in self._inputs:
             self._inputs[input_name] = []
-        self._inputs[input_name].append(DataframeInput(df,col_format))
+        self._inputs[input_name].append(DataframeInput(df,col_format,model,kwargs))
 
     def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
         description = model_desc.description
@@ -73,6 +87,9 @@ class DataframeInputs(object):
 
                 inputters = self._inputs[input_name]
                 for inputter in inputters:
+                    if not inputter.applies(description):
+                        continue
+
                     data = inputter.get_series(**node)
                     if data is None:
                         continue
@@ -294,7 +311,7 @@ class UniformParameteriser(object):
                 continue
             grp['parameters'][param_num,:] = self._params[pname]
 
-class  UniformInput(object):
+class UniformInput(object):
     def __init__(self,input_name,val,length):
         self.input_name = input_name
         self.value = val
