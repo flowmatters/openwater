@@ -38,8 +38,7 @@ class DataframeInput(object):
         self.column_format = column_format
 
     def applies(self,model):
-        # TODO Check against model
-        return True
+        return _models_match(self.model,model)
 
     def get_series(self,**kwargs):
         # TODO Check against constraint tags
@@ -87,7 +86,7 @@ class DataframeInputs(object):
 
                 inputters = self._inputs[input_name]
                 for inputter in inputters:
-                    if not inputter.applies(description):
+                    if not inputter.applies(model_desc):
                         continue
 
                     data = inputter.get_series(**node)
