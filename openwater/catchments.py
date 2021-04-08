@@ -11,6 +11,10 @@ from openwater import OWTemplate, OWLink
 import openwater.nodes as n
 import openwater.template as templating
 
+DOWNSTREAM_FLOW_FLUX='flow_downstream'
+DOWNSTREAM_LOAD_FLUX='load_downstream'
+UPSTREAM_FLOW_FLUX='flow_upstream'
+UPSTREAM_LOAD_FLUX='load_upstream'
 
 # Need:
 # * Routines for delineation
@@ -27,6 +31,7 @@ class SemiLumpedCatchment(object):
     self.cg = n.EmcDwc
     self.routing = n.Muskingum
     self.transport = n.LumpedConstituentRouting
+    self.node_template = None
 
   def model_for(self,provider,*args):
     if provider is None:
@@ -37,12 +42,15 @@ class SemiLumpedCatchment(object):
       return provider[args[0]]
     return provider
 
-  def get_template(self,**kwargs):
+  def get_template(self,**kwargs) -> OWTemplate:
     tag_values = list(kwargs.values())
     template = OWTemplate()
 
     routing_model = self.model_for(self.routing,*tag_values)
     routing_node = template.add_node(routing_model,process='FlowRouting',**kwargs)
+    template.define_input(routing_node,'inflow',UPSTREAM_FLOW_FLUX,**kwargs)
+    template.define_output(routing_node,'outflow',DOWNSTREAM_FLOW_FLUX,**kwargs)
+
     transport = {}
     for con in self.constituents:
       # transport_node = 'Transport-%s'%(con)
@@ -54,6 +62,19 @@ class SemiLumpedCatchment(object):
       transport_node = template.add_node(transport_model,process='ConstituentRouting',constituent=con,**kwargs)
       if transport_node.has_input('outflow'):
           template.add_link(OWLink(routing_node,'outflow',transport_node,'outflow'))
+
+      if transport_node.has_input('inflowLoad'):
+        load_in_flux = 'inflowLoad'
+      else:
+        load_in_flux = 'inflow'
+      template.define_input(transport_node,load_in_flux,UPSTREAM_LOAD_FLUX,**kwargs)
+
+      if transport_node.has_output('outflowLoad'):
+        load_out_flux = 'outflowLoad'
+      else:
+        load_out_flux='outflow'
+      template.define_output(transport_node,load_out_flux,DOWNSTREAM_LOAD_FLUX,**kwargs)
+
       transport[con]=transport_node
 
     runoff = {}
@@ -95,12 +116,15 @@ class SemiLumpedCatchment(object):
         else:
           template.add_link(OWLink(gen_node,'totalLoad',transport_node,'inflow'))
 
-        if (self.routing is not None) and transport_node.has_input('outflow'):
-            template.add_link(OWLink(routing_node,'outflow',transport_node,'outflow'))
-            template.add_link(OWLink(routing_node,'storage',transport_node,'reachVolume'))
+        # if (self.routing is not None) and transport_node.has_input('outflow'):
+        #     template.add_link(OWLink(routing_node,'outflow',transport_node,'outflow'))
+        #     template.add_link(OWLink(routing_node,'storage',transport_node,'reachVolume'))
 
     return template
-  
+
+  def get_node_template(self,node_type,**kwargs) -> templating.OWTemplate:
+      return self.node_template(node_type,self.constituents,**kwargs)
+
   def link_catchments(self,graph,upstream,downstream):
     linkages = [(self.routing,'%s-FlowRouting (%s)',[])] + \
                [(self.transport,('%%s-ConstituentRouting-%s (%%s)')%c,[c]) for c in self.constituents]

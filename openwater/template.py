@@ -33,6 +33,9 @@ def connections_match(o,i):
   o_tags.update(o_node.tags)
   i_tags = i_tags.copy()
   i_tags.update(i_node.tags)
+  return tags_match(o_tags, i_tags)
+
+def tags_match(o_tags,i_tags):
   common_keys = list(set(o_tags.keys()).intersection(i_tags.keys()))
   for ck in common_keys:
     if ck in ['_process','_model']: continue
@@ -59,6 +62,9 @@ class OWTemplate(object):
       # But the node currently stores the model name)
       pass
 
+    if not node.has_input(name):
+        raise InvalidFluxException(node,name,'input')
+
     if alias is None:
       alias = name
     self.inputs.append((node,name,alias,kwargs))
@@ -66,6 +72,10 @@ class OWTemplate(object):
   def define_output(self,node,name=None,alias=None,**kwargs):
     if alias is None:
       alias = name
+
+    if not node.has_output(name):
+        raise InvalidFluxException(node,name,'output')
+
     self.outputs.append((node,name,alias,kwargs))
 
   def add_node(self,model_type=None,name=None,process=None,**tags):
@@ -88,6 +98,46 @@ class OWTemplate(object):
         self.add_link(OWLink(from_node,from_output,to_node,pi))
         return True
     return False
+
+  def match_labelled_flux(self,fluxes,flux_name,flux_tags,exclude_tags):
+      required_tags = set(flux_tags.keys())
+      for node,name,alias,stored_tags in fluxes:
+        if flux_name != alias:
+          continue
+        stored_tags = dict(**stored_tags)
+        stored_tags.update(**node.tags)
+        if len(required_tags.difference(stored_tags.keys())):
+          continue
+        skip = False
+        for et in exclude_tags:
+            if et in stored_tags:
+                skip = True
+                break
+        if skip: continue
+
+        if tags_match(flux_tags,stored_tags):
+          return node, name
+      return None,None
+
+  def make_link(self,output_name,input_name,
+                from_node=None,from_tags={},from_exclude_tags=[],
+                to_node=None,to_tags={},to_exclude_tags=[]):
+    if from_node is None:
+        from_node, new_output_name = self.match_labelled_flux(
+            self.outputs,output_name,from_tags,from_exclude_tags)
+        if from_node is None or new_output_name is None:
+            n_outputs = len(self.outputs)
+            raise Exception('No matching output for %s, with tags %s. Have %d outputs'%(new_output_name,str(from_tags),n_outputs))
+        output_name = new_output_name
+    if to_node is None:
+        to_node, new_input_name = self.match_labelled_flux(
+            self.inputs,input_name,to_tags,to_exclude_tags)
+
+        if to_node is None or new_input_name is None:
+            raise Exception('No matching input for %s, with tags %s'%(new_input_name,str(to_tags)))
+        input_name = new_input_name
+
+    return OWLink(from_node,output_name,to_node,input_name)
 
   def flatten(self):
     '''
@@ -216,7 +266,7 @@ class OWLink(object):
 
 #   def add_node(self,name,)
 
-def template_to_graph(g,tpl,**tags):
+def template_to_graph(g,tpl,**tags) -> nx.DiGraph:
   if not g:
     g = nx.DiGraph()
   nodes = {}
@@ -902,9 +952,16 @@ class ModelFile(object):
 
                 model_meta = getattr(node_types,m)
 
-                node_dict = {n:{d:vals[ix] for d,vals in dim_map.items()} for ix,n in enumerate(nodes)}
+                # for k,v in attributes.items():
+                #     nodes_df[k] = v
+                # full_dims = dict(**dims,**attributes)
 
-                self._parameteriser.parameterise(model_meta,model_grp,instances,dims,node_dict)
+                node_dict = {n:{d:vals[ix] for d,vals in dim_map.items()} for ix,n in enumerate(nodes)}
+                nodes_df = pd.DataFrame({'node':nodes})
+                for d, vals in dim_map.items():
+                    nodes_df[d] = vals
+
+                self._parameteriser.parameterise(model_meta,model_grp,instances,dim_map,node_dict,nodes_df)
         finally:
             self._h5f.close()
             self._h5f = h5py.File(self.filename,'r')
