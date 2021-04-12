@@ -992,12 +992,9 @@ def _run(time_period,model_fn=None,results_fn=None,**kwargs):
         results_fn = '%s_outputs%s'%(base,ext)
         print('INFO: No output filename provided. Writing to %s'%results_fn)
 
-    # flags = ' '.join([ow_sim_flag_text(k,v) 
     cmd_line = [_exe_path('sim')]
     for k,v in kwargs.items():
-        flag_text = ow_sim_flag_text(k,v)
-        if len(flag_text):
-            cmd_line.append(flag_text)
+      cmd_line += ow_sim_flag_text(k,v)
     cmd_line.append(model_fn),
     cmd_line.append(results_fn)
     # "%s %s %s %s"%(_exe_path('sim'),flags,model_fn,results_fn)
@@ -1058,11 +1055,19 @@ def configure_non_blocking_io(proc,stream):
     return queue,thread
 
 def ow_sim_flag_text(k,v):
-    if v == False:
-        return ''
-    if v == True:
-        return '-%s'%k
-    return '-%s %s'%(k,str(v))
+  k = k.replace('_','-')
+  k = '-%s'%k
+  if v == False:
+      return []
+  if v == True:
+      return [k]
+
+  if hasattr(v,'__len__') and not isinstance(v,str):
+    if hasattr(v,'items'):
+      v = ','.join([f'{v_key}:{v_val}' for v_key,v_val in v.items()])
+    else:
+      v = ','.join(v)
+  return [k,str(v)]
 
 class InvalidFluxException(Exception):
     def __init__(self,node,flux_name,flux_type):
