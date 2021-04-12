@@ -605,9 +605,8 @@ class SourceOpenwaterModelBuilder(object):
             inflow_loads = self.provider.inflow_loads(inflows)
             inflow_inputs.inputter(inflow_loads,'inputLoad','${node_name}:${constituent}',model='PassLoadIfFlow')
 
-        delta_t_parameteriser = UniformParameteriser('DepthToRate',DeltaT=delta_t)
-        p.append(delta_t_parameteriser)
-
+        p.append(UniformParameteriser('DepthToRate',DeltaT=delta_t))
+        p.append(UniformParameteriser('PassLoadIfFlow',scalingFactor=1.0))
 
         # Not needed
         # for model_type, inputs in climate_inputs.items():
