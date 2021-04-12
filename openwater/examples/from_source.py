@@ -127,42 +127,90 @@ def filter_nodes(nodes):
         nodes = nodes[~nodes.icon.str.contains(ignore)]
     return nodes
 
-def make_network_topology(catchments,nodes,links):
-  c2l = pd.merge(catchments[['name','link']],
-                 links[['id','from_node','to_node']],
-                 left_on='link',right_on='id',how='inner')
-  c2l['from_name'] = c2l['name']
-  c2l['to_name'] = c2l['name']
-  join_table = pd.merge(c2l[['from_name','link','to_node']],
-                        c2l[['to_name','from_node']],
-                        left_on='to_node',right_on='from_node',how='inner')
-
-  linkages = []
-  for ix, row in join_table.iterrows():
+def make_node_linkages(row,nodes):
+    linkages = []
+    assert row.from_node == row.to_node
     from_c = row.from_name
     to_c = row.to_name
-    direct_link_catchments = True
+    direct_link_catchments = True #not(pd.isna(from_c) or pd.isna(to_c))
+
+    if pd.isna(from_c):
+      std_source = {
+        'link_name':row.link_name
+      }
+    else:
+      std_source = {
+        'catchment':from_c
+      }
+
+    if pd.isna(to_c):
+      std_dest = {
+        'link_name':row.to_link_name
+      }
+    else:
+      std_dest = {
+        'catchment':to_c
+      }
 
     if row.to_node in nodes.id:
-      node_name = list(interesting_nodes[interesting_nodes.id==row.to_node].name)[0]
+      node_name = list(nodes[nodes.id==row.to_node].name)[0]
       linkages.append((
         {
           'node_name':node_name
         },
-        {
-          'catchment':to_c
-        }
+        std_dest
       ))
+
+      # IF node takes upstream input
+      # direct_link_catchments = False
 
     if direct_link_catchments:
         linkages.append((
-          {
-            'catchment':from_c
-          },
-          {
-            'catchment':to_c
-          }
+          std_source,
+          std_dest
         ))
+    return linkages
+
+def find_upstream_connectibles(link,connections,links,nodes):
+  connectibles = []
+  link_details = links[links.id==invalid_row.link].iloc[0]
+  us_node = link_details.from_node
+  us_linkages = connections[connections.to_node==us_node]
+  for ix, us_row in us_linkages.iterrows():
+    if pd.isna(us_row.from_name) and us_row.to_node not in nodes.id:
+      connectibles += find_upstream_connectibles(us_row.link,connections,links,nodes)
+      continue
+    connectibles.append({
+      'from_name':'',
+      'link':'',
+      'to_node':'',
+      'to_name':'',
+      'from_node':''
+    })
+  return connectibles
+
+def make_network_topology(catchments,nodes,links):
+  links['link_name'] = links['name']
+  c2l = pd.merge(catchments[['name','link']],
+                 links[['id','link_name','from_node','to_node']],
+                 left_on='link',right_on='id',how='right')
+  c2l['from_name'] = c2l['name']
+  c2l['to_name'] = c2l['name']
+  c2l['to_link_name'] = c2l['link_name']
+
+  c2l['link'] = c2l['id']
+  node_connection_table = pd.merge(c2l[['from_name','link','link_name','to_node']],
+                        c2l[['to_name','to_link_name','from_node']],
+                        left_on='to_node',right_on='from_node',how='inner')
+
+  # node_connection_table = collapse_links(node_connection_table,nodes,links)
+
+  linkages = []
+  for ix, row in node_connection_table.iterrows():
+    node_linkages = make_node_linkages(row,nodes)
+    if not len(node_linkages):
+      raise Exception('No linkages made for %s'%str(row))
+    linkages += node_linkages
 
   return linkages
 
@@ -182,6 +230,17 @@ def build_catchment_graph(model_structure,network,progress=print,custom_processi
       tpl = model_structure.get_template(catchment=catchment['name']).flatten()
       templates.append(tpl)
     #   g = templating.template_to_graph(g,tpl)
+
+  for _,link in links.iterrows():
+    # print(link.id)
+    # print(sorted(list(catchments.link)))
+    if catchments.link.isin([link.id]).any():
+      continue
+
+    print(link.name,link.id,'has no catchment, getting link template')
+
+    tpl = model_structure.get_link_template(link_name=link['name']).flatten()
+    templates.append(tpl)
 
   interesting_nodes = filter_nodes(nodes)
   print(interesting_nodes[['id','name','icon']])
@@ -400,7 +459,7 @@ class FileBasedModelConfigurationProvider(object):
 
         data = pd.read_csv(fn, index_col=0, parse_dates=True)
         if 'NetworkElement' in data.columns:
-            data['Catchment'] = data['NetworkElement'].str.slice(len(EXPECTED_LINK_PREFIX))
+            data['Catchment'] = data['NetworkElement'].str.replace(EXPECTED_LINK_PREFIX,'',case=False)
 
         return data
 
