@@ -7,7 +7,7 @@ Includes:
 * Spatial parameterisation (python-rasterstats)
 * Spatial input generation using climate-utils
 '''
-from openwater import OWTemplate, OWLink
+from openwater import OWTemplate, OWLink, OWNode
 import openwater.nodes as n
 import openwater.template as templating
 
@@ -44,8 +44,57 @@ class SemiLumpedCatchment(object):
 
   def get_template(self,**kwargs) -> OWTemplate:
     tag_values = list(kwargs.values())
-    template = OWTemplate()
+    template, routing_node, transport_nodes = self._get_link_template_with_nodes(**kwargs)
 
+    runoff = {}
+    for hru in self.hrus:
+      runoff_model = self.model_for(self.rr,hru,*tag_values)
+      if runoff_model is None: continue
+
+      runoff_node = template.add_node(runoff_model,process='RR',hru=hru,**kwargs)
+      runoff[hru] = runoff_node
+
+    for cgu in self.cgus:
+      runoff_node = runoff.get(self.cgu_hrus.get(cgu,cgu))
+      if runoff_node is None:
+          continue
+
+      runoff_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Runoff',**kwargs)
+      quickflow_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Quickflow',**kwargs)
+      baseflow_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Baseflow',**kwargs)
+
+      template.add_link(OWLink(runoff_node,'runoff',runoff_scale_node,'input'))
+      template.add_link(OWLink(runoff_node,'quickflow',quickflow_scale_node,'input'))
+      template.add_link(OWLink(runoff_node,'baseflow',baseflow_scale_node,'input'))
+
+      if routing_node.has_input('lateral'):
+        catchment_inflow_flux = 'lateral'
+      else:
+        catchment_inflow_flux = 'inflow'
+
+      template.add_link(OWLink(runoff_scale_node,'outflow',routing_node,catchment_inflow_flux))
+
+      for con in self.constituents:
+        gen_node = template.add_node(self.model_for(self.cg,con,cgu,*tag_values),process='ConstituentGeneration',constituent=con,cgu=cgu,**kwargs)
+        template.add_link(OWLink(quickflow_scale_node,'outflow',gen_node,'quickflow'))
+        template.add_link(OWLink(baseflow_scale_node,'outflow',gen_node,'baseflow'))
+
+        transport_node = transport_nodes[con]
+        if transport_node.has_input('lateralLoad'):
+          template.add_link(OWLink(gen_node,'totalLoad',transport_node,'lateralLoad'))
+          template.add_link(OWLink(runoff_scale_node,'outflow',transport_node,'inflow'))
+        else:
+          template.add_link(OWLink(gen_node,'totalLoad',transport_node,'inflow'))
+
+        # if (self.routing is not None) and transport_node.has_input('outflow'):
+        #     template.add_link(OWLink(routing_node,'outflow',transport_node,'outflow'))
+        #     template.add_link(OWLink(routing_node,'storage',transport_node,'reachVolume'))
+
+    return template
+
+  def _get_link_template_with_nodes(self,**kwargs) -> (OWTemplate, OWNode, dict):
+    tag_values = list(kwargs.values())
+    template = OWTemplate()
     routing_model = self.model_for(self.routing,*tag_values)
     routing_node = template.add_node(routing_model,process='FlowRouting',**kwargs)
     template.define_input(routing_node,'inflow',UPSTREAM_FLOW_FLUX,**kwargs)
@@ -77,50 +126,11 @@ class SemiLumpedCatchment(object):
 
       transport[con]=transport_node
 
-    runoff = {}
-    for hru in self.hrus:
-      runoff_model = self.model_for(self.rr,hru,*tag_values)
-      if runoff_model is None: continue
+    return template, routing_node, transport
 
-      runoff_node = template.add_node(runoff_model,process='RR',hru=hru,**kwargs)
-      runoff[hru] = runoff_node
-
-    for cgu in self.cgus:
-      runoff_node = runoff.get(self.cgu_hrus.get(cgu,cgu))
-      if runoff_node is None:
-          continue
-
-      runoff_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Runoff',**kwargs)
-      quickflow_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Quickflow',**kwargs)
-      baseflow_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Baseflow',**kwargs)
-
-      template.add_link(OWLink(runoff_node,'runoff',runoff_scale_node,'input'))
-      template.add_link(OWLink(runoff_node,'quickflow',quickflow_scale_node,'input'))
-      template.add_link(OWLink(runoff_node,'baseflow',baseflow_scale_node,'input'))
-
-      if routing_model.name=='Lag':
-        catchment_inflow_flux = 'inflow'
-      else:
-        catchment_inflow_flux = 'lateral'
-      template.add_link(OWLink(runoff_scale_node,'outflow',routing_node,catchment_inflow_flux))
-
-      for con in self.constituents:
-        gen_node = template.add_node(self.model_for(self.cg,con,cgu,*tag_values),process='ConstituentGeneration',constituent=con,cgu=cgu,**kwargs)
-        template.add_link(OWLink(quickflow_scale_node,'outflow',gen_node,'quickflow'))
-        template.add_link(OWLink(baseflow_scale_node,'outflow',gen_node,'baseflow'))
-
-        transport_node = transport[con]
-        if transport_node.has_input('lateralLoad'):
-          template.add_link(OWLink(gen_node,'totalLoad',transport_node,'lateralLoad'))
-          template.add_link(OWLink(runoff_scale_node,'outflow',transport_node,'inflow'))
-        else:
-          template.add_link(OWLink(gen_node,'totalLoad',transport_node,'inflow'))
-
-        # if (self.routing is not None) and transport_node.has_input('outflow'):
-        #     template.add_link(OWLink(routing_node,'outflow',transport_node,'outflow'))
-        #     template.add_link(OWLink(routing_node,'storage',transport_node,'reachVolume'))
-
-    return template
+  def get_link_template(self,**kwargs) -> OWTemplate:
+    tpl, _, _ = self._get_link_template_with_nodes(**kwargs)
+    return tpl
 
   def get_node_template(self,node_type,**kwargs) -> templating.OWTemplate:
       return self.node_template(node_type,self.constituents,**kwargs)
