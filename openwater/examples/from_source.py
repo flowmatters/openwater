@@ -171,24 +171,6 @@ def make_node_linkages(row,nodes):
         ))
     return linkages
 
-def find_upstream_connectibles(link,connections,links,nodes):
-  connectibles = []
-  link_details = links[links.id==invalid_row.link].iloc[0]
-  us_node = link_details.from_node
-  us_linkages = connections[connections.to_node==us_node]
-  for ix, us_row in us_linkages.iterrows():
-    if pd.isna(us_row.from_name) and us_row.to_node not in nodes.id:
-      connectibles += find_upstream_connectibles(us_row.link,connections,links,nodes)
-      continue
-    connectibles.append({
-      'from_name':'',
-      'link':'',
-      'to_node':'',
-      'to_name':'',
-      'from_node':''
-    })
-  return connectibles
-
 def make_network_topology(catchments,nodes,links):
   links['link_name'] = links['name']
   c2l = pd.merge(catchments[['name','link']],
