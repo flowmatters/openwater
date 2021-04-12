@@ -495,7 +495,8 @@ class FileBasedModelConfigurationProvider(object):
 
         inputter = DataframeInputs()
         for variable,column in self.climate_patterns.items():
-            inputter.inputter(data,variable,column)
+            inputter.inputter(data,'input',column,n.Input,variable=variable)
+
         return inputter, data.index, delta_t
 
     def inflows(self,time_period):
@@ -549,6 +550,7 @@ class SourceOpenwaterModelBuilder(object):
 
     def build_catchment_template(self):
         catchment_template = SemiLumpedCatchment()
+        catchment_template.climate_inputs = ['rainfall','pet']
         catchment_template.node_template = get_default_node_template
         fus = set(self.provider.get_functional_unit_types())
         constituents = self.provider.get_constituents()
@@ -684,7 +686,7 @@ def build_extraction_node_template(template,constituents,**kwargs):
         template.add_link(OWLink(prop,'proportion',con_ext,'fraction'))
 
 def build_inflow_node_template(template:templating.OWTemplate,constituents: list,**kwargs):
-    flow_node = template.add_node(n.Input,process='inflow',**kwargs)
+    flow_node = template.add_node(n.Input,process='inflow',variable='inflow',**kwargs)
     template.define_output(flow_node,'output',DOWNSTREAM_FLOW_FLUX,**kwargs)
 
     for con in constituents:

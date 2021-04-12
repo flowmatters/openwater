@@ -22,6 +22,7 @@ UPSTREAM_LOAD_FLUX='load_upstream'
 
 class SemiLumpedCatchment(object):
   def __init__(self):
+    self.climate_inputs = []
     self.hrus = ['HRU']
     self.cgus = ['CGU']
     self.cgu_hrus = {}
@@ -46,6 +47,8 @@ class SemiLumpedCatchment(object):
     tag_values = list(kwargs.values())
     template, routing_node, transport_nodes = self._get_link_template_with_nodes(**kwargs)
 
+    climate_nodes = {cvar: template.add_node(n.Input,process='input',variable=cvar,**kwargs) for cvar in self.climate_inputs}
+
     runoff = {}
     for hru in self.hrus:
       runoff_model = self.model_for(self.rr,hru,*tag_values)
@@ -53,6 +56,9 @@ class SemiLumpedCatchment(object):
 
       runoff_node = template.add_node(runoff_model,process='RR',hru=hru,**kwargs)
       runoff[hru] = runoff_node
+
+      for clim_var, clim_node in climate_nodes.items():
+        template.add_link(OWLink(clim_node,'output',runoff_node,clim_var))
 
     for cgu in self.cgus:
       runoff_node = runoff.get(self.cgu_hrus.get(cgu,cgu))
