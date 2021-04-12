@@ -129,10 +129,9 @@ def filter_nodes(nodes):
 
 def make_node_linkages(row,nodes):
     linkages = []
-    assert row.from_node == row.to_node
     from_c = row.from_name
     to_c = row.to_name
-    direct_link_catchments = True #not(pd.isna(from_c) or pd.isna(to_c))
+    direct_link_catchments = not pd.isna(row.to_node) #not(pd.isna(from_c) or pd.isna(to_c))
 
     if pd.isna(from_c):
       std_source = {
@@ -152,8 +151,15 @@ def make_node_linkages(row,nodes):
         'catchment':to_c
       }
 
-    if row.to_node in nodes.id:
-      node_name = list(nodes[nodes.id==row.to_node].name)[0]
+    link_from_node = None
+
+    if pd.isna(row.to_node) and nodes.id.isin([row.from_node]).any():
+      link_from_node = row.from_node
+    elif nodes.id.isin([row.to_node]).any():
+      link_from_node = row.to_node
+
+    if link_from_node is not None:
+      node_name = list(nodes[nodes.id==link_from_node].name)[0]
       linkages.append((
         {
           'node_name':node_name
@@ -183,15 +189,13 @@ def make_network_topology(catchments,nodes,links):
   c2l['link'] = c2l['id']
   node_connection_table = pd.merge(c2l[['from_name','link','link_name','to_node']],
                         c2l[['to_name','to_link_name','from_node']],
-                        left_on='to_node',right_on='from_node',how='inner')
+                        left_on='to_node',right_on='from_node',how='right')
 
   # node_connection_table = collapse_links(node_connection_table,nodes,links)
 
   linkages = []
   for ix, row in node_connection_table.iterrows():
     node_linkages = make_node_linkages(row,nodes)
-    if not len(node_linkages):
-      raise Exception('No linkages made for %s'%str(row))
     linkages += node_linkages
 
   return linkages
@@ -206,54 +210,33 @@ def build_catchment_graph(model_structure,network,progress=print,custom_processi
   nodes = network[network.feature_type=='node']
 
   templates = []
-#   g = None
   report_time('Build catchments')
   for _,catchment in catchments.iterrows():
       tpl = model_structure.get_template(catchment=catchment['name']).flatten()
       templates.append(tpl)
-    #   g = templating.template_to_graph(g,tpl)
 
   for _,link in links.iterrows():
-    # print(link.id)
-    # print(sorted(list(catchments.link)))
     if catchments.link.isin([link.id]).any():
       continue
-
-    print(link.name,link.id,'has no catchment, getting link template')
 
     tpl = model_structure.get_link_template(link_name=link['name']).flatten()
     templates.append(tpl)
 
   interesting_nodes = filter_nodes(nodes)
   print(interesting_nodes[['id','name','icon']])
-  # TODO! Re-enable
   for ix,node in interesting_nodes.iterrows():
       print(ix,node)
       node_type = node['icon'].split('/')[-1].replace('NodeModel','')
       tpl = model_structure.get_node_template(node_name=node['name'],node_type=node_type).flatten()
       templates.append(tpl)
-    #   g = templating.template_to_graph(g,tpl)
 
   report_time('Link catchments')
 
-  # TODO - Interesting nodes. If to_node / from_node between links,
-  #        then process... somehow...
-
   master_template = templating.OWTemplate()
 
-#   g = None
   for tpl in templates:
       master_template.nest(tpl)
-    #   g = templating.template_to_graph(g,tpl)
   master_template = master_template.flatten()
-
-#   g = None
-#   g = templating.template_to_graph(g,master_template)
-
-#   froms = list(join_table.from_name)
-#   tos = list(join_table.to_name)
-
-#   for from_c,to_c in zip(froms,tos):
 
   linkages = make_network_topology(catchments,interesting_nodes,links)
   for ix, (from_link,to_link) in enumerate(linkages):
@@ -276,13 +259,9 @@ def build_catchment_graph(model_structure,network,progress=print,custom_processi
         to_tags=to_link)
       master_template.add_link(con_link)
 
-      # if node has upstream connectors, link from from_c to node
-      # else link from from_c to to_c
-
   g = None
   g = templating.template_to_graph(g,master_template)
 
-#   assert False
   # Detect where we have a node of interest and link to it... (and from it to the next link)
 
 
