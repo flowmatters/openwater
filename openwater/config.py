@@ -82,12 +82,12 @@ class DataframeInputs(object):
             for input_num,input_name in enumerate(inputs):
                 if not input_name in self._inputs:
                     continue
-                # initialise_model_inputs(grp,instances.size,len(inputs),len(self._inputs[input_name][0].df))
 
                 inputters = self._inputs[input_name]
                 for inputter in inputters:
                     if not inputter.applies(model_desc):
                         continue
+                    initialise_model_inputs(grp,len(nodes_df),len(inputs),len(self._inputs[input_name][0].df))
 
                     data = inputter.get_series(**node)
                     if data is None:
@@ -252,7 +252,7 @@ class ParameterTableAssignment(object):
         dest_grp, dest_idx0, dest_idx1 = self.locate(model_desc,self.parameter)
         print(dest_grp,dest_idx0,dest_idx1)
 
-        param_data = np.zeros(instances.size,dtype='float64')
+        param_data = np.zeros(len(nodes),dtype='float64')
         for _,node in nodes.items():
             run_idx = node['_run_idx']
             col = node[self.column_dim]
@@ -321,9 +321,9 @@ class UniformInput(object):
       for input_num,input_name in enumerate(inputs):
           if input_name!=self.input_name:
             continue
-          #initialise_model_inputs(grp,instances.size,len(inputs),self._length)
+          initialise_model_inputs(grp,len(nodes_df),len(inputs),self._length)
           print('Uniform %s = %f'%(self.input_name,self.value))
-          for cell in range(instances.size):
+          for cell in range(len(nodes_df)):
             if hasattr(self.value,'__call__'):
               grp['inputs'][cell,input_num,:] = self.value(cell)
             else:

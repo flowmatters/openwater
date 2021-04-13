@@ -793,13 +793,13 @@ class ModelGraph(object):
 
             model_grp.create_dataset('batches',shape=(len(self.order),),dtype=np.uint32,data=self.model_batches[m],fillvalue=-1)
 
-            n_cells = instances.size
+            n_cells = len(model_nodes) # instances.size
             # Init states....
             model_grp.create_dataset('states',shape=(n_cells,n_states),dtype=np.float64,fillvalue=0)
 
             model_grp.create_dataset('parameters',shape=(n_params,n_cells),dtype=np.float64,fillvalue=0)
 
-            model_grp.create_dataset('inputs',shape=(n_cells,n_inputs,n_timesteps),dtype=np.float64,fillvalue=0)
+            # model_grp.create_dataset('inputs',shape=(n_cells,n_inputs,n_timesteps),dtype=np.float64,fillvalue=0)
 
             if (self._parameteriser is not None) and (desc is not None):
                 node_dict = {n:nodes[n] for n in model_nodes}
