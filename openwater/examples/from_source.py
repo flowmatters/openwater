@@ -467,7 +467,6 @@ class FileBasedModelConfigurationProvider(object):
 
     def climate_data(self):
         data = self._load_csv('climate')
-        data = data[:(365*24)] # 1 year
 
         time_steps = data.index
         delta_t = (time_steps[1]-time_steps[0]).total_seconds()
