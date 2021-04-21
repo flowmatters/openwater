@@ -395,9 +395,10 @@ class VeneerModelConfigurationProvider(object):
         self.v = v
 
 class FileBasedModelConfigurationProvider(object):
-    def __init__(self,path,climate_patterns):
+    def __init__(self,path,climate_patterns,time_period=None):
         self.data_path = path
         self.climate_patterns = climate_patterns
+        self.time_period = time_period
 
     def _find_files(self,pattern,ignoring=[]):
         files = [os.path.basename(fn) for fn in \
@@ -470,6 +471,8 @@ class FileBasedModelConfigurationProvider(object):
 
     def climate_data(self):
         data = self._load_csv('climate')
+        if self.time_period is not None:
+          data = data.reindex(self.time_period)
 
         time_steps = data.index
         delta_t = (time_steps[1]-time_steps[0]).total_seconds()
