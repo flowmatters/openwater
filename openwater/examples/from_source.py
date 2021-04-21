@@ -605,7 +605,7 @@ class SourceOpenwaterModelBuilder(object):
             inflow_inputs = DataframeInputs()
             p.append(inflow_inputs)
 
-            inflow_inputs.inputter(inflows,'input','${node_name}',model='Input')
+            inflow_inputs.inputter(inflows,'input','${node_name}',model=n.Input)
 
             inflow_loads = self.provider.inflow_loads(inflows)
             inflow_inputs.inputter(inflow_loads,'inputLoad','${node_name}:${constituent}',model='PassLoadIfFlow')
