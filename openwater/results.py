@@ -20,15 +20,23 @@ def _open_h5(f):
     return h5.File(f,'r')
 
 class OpenwaterResults(object):
-  def  __init__(self,model,res_file,time_period=None):
+  def  __init__(self,model,res_file,time_period=None,inputs=None):
     self.model = _open_h5(model)
     self.results = _open_h5(res_file)
+    if inputs is None:
+      self.inputs = self.model
+    else:
+      self.inputs = _open_h5(inputs)
+
     self.time_period = time_period
     self._dimensions={}
 
   def close(self):
       self.results.close()
       self.model.close()
+      if self.model != self.inputs:
+        self.inputs.close()
+
 
   def dim(self,dim:str)->List:
     if not dim in self._dimensions:
@@ -49,13 +57,13 @@ class OpenwaterResults(object):
 
     grp_name = '/MODELS/%s'%model
     out_grp = self.results[grp_name]
-    in_grp = self.model[grp_name]
-    
+
     if is_input:
       var_idx = desc.description['Inputs'].index(variable)
       if 'inputs' in out_grp:
         dataset = out_grp['inputs']
       else:
+        in_grp = self.inputs[grp_name]
         dataset = in_grp['inputs']
     else:
       var_idx = desc.description['Outputs'].index(variable)
