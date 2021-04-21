@@ -199,3 +199,75 @@ class OpenwaterResults(object):
     if not map_grp in self.model:
         raise Exception('Missing model type: %s'%model)
     return [d.decode('utf-8') for d in self.model[map_grp].attrs['DIMS']]
+
+class OpenwaterSplitResults(object):
+  def  __init__(self,splits,time_period=None):
+    assert len(splits)
+    if isinstance(splits[0],tuple):
+      self._results = [OpenwaterResults(model,res,None) for (model,res) in splits]
+    else:
+      self._results = splits
+    self.time_period = time_period
+
+  def close(self):
+    for split in self._results:
+      split.close()
+
+  def dim(self,dim:str)->List:
+    return self._results[0].dim(dim)
+
+  def dims(self) -> List[str]:
+    return self._results[0].dims()
+
+  def time_series(self,model,variable:str,columns:str,aggregator=None,**kwargs) -> pd.DataFrame:
+    '''
+    Return a table (DataFrame) of time series results from the model.
+
+    Parameters:
+
+    * model - the model of interest
+    * variable - a variable on the model, either an input or an output
+    * columns - a dimension of the model to use as the columns of the DataFrame
+    * aggregator - a function name (string) to apply when more than one data series matches a particular column (eg 'mean')
+    * **kwargs - used to specify other dimensions to filter by
+
+    For aggregator, see agg_fns.keys()
+
+    For dimensions (row, columns and kwargs), see dims_for_model
+    '''
+    all_dfs = [split.time_series(model,variable,columns,aggregator,**kwargs) for split in self._results]
+    concat = pd.concat(all_dfs)
+    result = concat.set_index(self.time_period)
+    return result
+
+  def table(self,model,variable:str,rows:str,columns:str,temporal_aggregator:str='mean',aggregator:str=None,**kwargs) -> pd.DataFrame:
+    '''
+    Return a table (DataFrame) of aggregated model results from the model.
+
+    Parameters:
+
+    * model - the model of interest
+    * variable - a variable on the model, either an input or an output
+    * row - a dimension of the model to use as the rows of the DataFrame
+    * columns - a dimension of the model to use as the columns of the DataFrame
+    * temporal_aggregator - a function name (string) to reduce the timeseries results to a single value (default='mean')
+    * aggregator - a function name (string) to apply when more than one data series matches a particular row/column (eg 'mean')
+    * **kwargs - used to specify other dimensions to filter by
+
+    For temporal_aggregator, see temporal_agg_fns.keys()
+
+    For aggregator, see agg_fns.keys()
+
+    For dimensions (row, columns and kwargs), see dims_for_model
+    '''
+    raise Exception('Not implemented')
+
+  def models(self) -> List[str]:
+    return self._results[0].models()
+
+  def variables_for(self,model) -> List[str]:
+    return self._results[0].variables_for(model)
+
+  def dims_for_model(self,model) -> List[str]:
+    return self._results[0].dims_for_model(model)
+
