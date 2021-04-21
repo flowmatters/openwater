@@ -47,6 +47,15 @@ MODEL_PARAMETER_TRANSLATIONS = {
 
 LOOKUP_COLUMN_ORDER=['Constituent','Functional Unit','Catchment','Constituent Source']
 
+def _create_surm_initial_states(raw_params):
+  raw_params['SoilMoistureStore'] = raw_params['initialSoilMoistureFraction'] * raw_params['smax']
+  raw_params['Groundwater'] = raw_params['initialGroundwaterLevel']
+  return raw_params[['catchment','hru','SoilMoistureStore','Groundwater']]
+
+MODELS_WITH_INITIAL_STATES_AS_PARAMETERS = {
+  'Surm':_create_surm_initial_states
+}
+
 def init_lookup():
   import openwater.nodes as node_types
   MODEL_LOOKUP.update({
@@ -586,6 +595,11 @@ class SourceOpenwaterModelBuilder(object):
             print('Building parameteriser for %s'%model_type)
             parameteriser = ParameterTableAssignment(parameters,model_type)
             p.append(parameteriser)
+
+            if model_type in MODELS_WITH_INITIAL_STATES_AS_PARAMETERS:
+              initial_states = MODELS_WITH_INITIAL_STATES_AS_PARAMETERS[model_type](parameters)
+              states_parameteriser = ParameterTableAssignment(initial_states,model_type)
+              p.append(states_parameteriser)
 
         print('Configuring climate data')
         climate_inputs,time_period, delta_t = self.provider.climate_data()
