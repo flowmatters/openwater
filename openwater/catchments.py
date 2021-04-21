@@ -20,6 +20,15 @@ UPSTREAM_LOAD_FLUX='load_upstream'
 # * Routines for delineation
 # * 
 
+def get_model_for_provider(provider,*args):
+  if provider is None:
+      return None
+  if hasattr(provider,'__call__'):
+    return provider(*args)
+  if hasattr(provider,'__getitem__'):
+    return provider[args[0]]
+  return provider
+
 class SemiLumpedCatchment(object):
   def __init__(self):
     self.climate_inputs = []
