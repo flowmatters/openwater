@@ -677,15 +677,33 @@ def build_inflow_node_template(template:templating.OWTemplate,constituents: list
         template.add_link(OWLink(flow_node,'output',load_input,'flow'))
         template.define_output(load_input,'outputLoad',DOWNSTREAM_LOAD_FLUX,constituent=con,**kwargs)
 
-def build_storage_node_template(template,constituents,**kwargs):
-    raise Exception(f'Storages not supported at {kwargs.get("node","unnamed node")}')
-    #     storage = template.add_node(n.Storage,process='storage',**kwargs)
-    #     for con in self.constituents:
-    #         con_ext = template.add_node(n.???,process='extraction',constituent=con,**kwargs)
-    #         template.add_link(storage,'proportion',con_ext,'fraction')
+def storage_template_builder(constituent_model_map=None):
+  def build_storage_node_template(template,constituents,**kwargs):
+    if constituent_model_map is None:
+      constituent_model_map = n.LumpedConstituentRouting
+    tag_values = list(kwargs.values())
+
+    storage = template.add_node(n.Storage,process='storage',**kwargs)
+    template.define_output(storage,'outflow',DOWNSTREAM_FLOW_FLUX,**kwargs)
+    template.define_input(storage,'inflow',UPSTREAM_FLOW_FLUX,**kwargs)
+
+    for con in self.constituents:
+      constituent_model = get_model_for_provider(
+        constituent_model_map,con,*tag_values)
+      constituent_node = template.add_node(constituent_model,
+                                           process='storage-constituents',
+                                           constituent=con,
+                                           **kwargs)
+      template.define_input(constituent_node,'inflowLoad',UPSTREAM_LOAD_FLUX,constituent=con,**kwargs)
+      template.define_output(constituent_node,'outflowLoad',DOWNSTREAM_LOAD_FLUX,constituent=con,**kwargs)
+
+      template.add_link(storage,'volume',constituent_node,'storage')
+      template.add_link(storage,'outflow',constituent_node,'outflow')
+
+  return build_storage_node_template
 
 DEFAULT_NODE_TEMPLATES={
     'Extraction':build_extraction_node_template,
     'InjectedFlow':build_inflow_node_template,
-    'Storage':build_storage_node_template
+    'Storage':storage_template_builder() # Default to lumped constituent routing
 }
