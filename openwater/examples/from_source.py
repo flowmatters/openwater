@@ -569,25 +569,20 @@ class SourceOpenwaterModelBuilder(object):
 
         init_lookup()
 
-        print('Building parameters')
-        # TEMPORARILY DISABLE TO TEST LINKS
-        runoff_parameters = build_parameter_lookups(self.provider.runoff_parameters())
-        cg_parameters = build_parameter_lookups(self.provider.generation_parameters())
-        routing_params = build_parameter_lookups(self.provider.routing_parameters())
-        # /TEMPORARILY DISABLE TO TEST LINKS
-
         print('Building model structure')
         catchment_template = self.build_catchment_template()
         net = self.provider.network()
         model = build_catchment_graph(catchment_template,net)
         print('Got graph, configuring parameters')
 
-
         p = Parameteriser()
-        # TEMPORARILY DISABLE TO TEST LINKS
         p.append(self._fu_areas_parameteriser())
 
-        for model_type, parameters in {**runoff_parameters,**cg_parameters}.items():
+        print('Building parameters')
+        runoff_parameters = build_parameter_lookups(self.provider.runoff_parameters())
+        cg_parameters = build_parameter_lookups(self.provider.generation_parameters())
+        routing_params = build_parameter_lookups(self.provider.routing_parameters())
+        for model_type, parameters in {**runoff_parameters,**cg_parameters,**routing_params}.items():
             print('Building parameteriser for %s'%model_type)
             parameteriser = ParameterTableAssignment(parameters,model_type)
             p.append(parameteriser)
@@ -596,8 +591,6 @@ class SourceOpenwaterModelBuilder(object):
         climate_inputs,time_period, delta_t = self.provider.climate_data()
         simulation_length = len(time_period)
         p.append(climate_inputs)
-        # /TEMPORARILY DISABLE TO TEST LINKS
-        # simulation_length = 10
 
         print('Configuring inflow timeseries')
         inflows = self.provider.inflows(time_period)
@@ -610,7 +603,9 @@ class SourceOpenwaterModelBuilder(object):
             inflow_loads = self.provider.inflow_loads(inflows)
             inflow_inputs.inputter(inflow_loads,'inputLoad','${node_name}:${constituent}',model='PassLoadIfFlow')
 
-        p.append(UniformParameteriser('DepthToRate',DeltaT=delta_t))
+        for dt_model in ['DepthToRate','StorageRouting','LumpedConstituentRouting']:
+          p.append(UniformParameteriser(dt_model,DeltaT=delta_t))
+
         p.append(UniformParameteriser('PassLoadIfFlow',scalingFactor=1.0))
 
         # Not needed
