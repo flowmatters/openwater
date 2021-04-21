@@ -55,7 +55,9 @@ def init_lookup():
     'SimHydCs':node_types.Simhyd,
     'MusicRR':node_types.Surm,
     'NullRainfallModel':None,
-    'StraightThroughRouting':node_types.Lag
+    'StraightThroughRouting':node_types.Lag,
+    'StorageRouting':node_types.StorageRouting,
+    'NullLinkInstreamModel':node_types.LumpedConstituentRouting
   })
 
 def df_model_lookup(df,default=None):
