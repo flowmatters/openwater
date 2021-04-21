@@ -97,7 +97,7 @@ class SemiLumpedCatchment(object):
         transport_node = transport_nodes[con]
         if transport_node.has_input('lateralLoad'):
           template.add_link(OWLink(gen_node,'totalLoad',transport_node,'lateralLoad'))
-          template.add_link(OWLink(runoff_scale_node,'outflow',transport_node,'inflow'))
+          # template.add_link(OWLink(runoff_scale_node,'outflow',transport_node,'inflow'))
         else:
           template.add_link(OWLink(gen_node,'totalLoad',transport_node,'inflow'))
 
