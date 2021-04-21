@@ -76,38 +76,39 @@ def df_model_lookup(df,default=None):
 
 
 def build_model_lookup(source_source=None,lookup_table=None,default=None,simplify_names=True):
-    if lookup_table is None:
-        lookup_table = list(zip(source_source.enumerate_names(),source_source.get_models()))
-        if simplify_names:
-            tags_to_keep = [i for i in range(len(lookup_table[0][0])) if len(set([t[0][i] for t in lookup_table]))>1]
-            lookup_table = [(tuple([t[0][i] for i in tags_to_keep]),t[1]) for t in lookup_table]
-            lookup_table = dict(lookup_table)
-    ##### TODO: This thing is accepting ordered arguments.
-    ##### That seems daft... Should be keywords rather than relying on the same order every time
-    def lookup_fn(*args):
-        model = lookup_table.get(tuple(args))
-        if model is not None:
-            return MODEL_LOOKUP[model.split('.')[-1]]
-        # for keys,model in lookup_table:
-        #     match = True
-        #     arg_copy = list(args[:])
-        #     for key in keys:
-        #         if not key in arg_copy:
-        #             match = False
-        #             break
-        #         arg_copy.remove(key)
-        #     if match:
-        #         return MODEL_LOOKUP[model.split('.')[-1]]
-        # print('No match',args,lookup_table[0])
+  if lookup_table is None:
+    lookup_table = list(zip(source_source.enumerate_names(),source_source.get_models()))
+    if simplify_names:
+      tags_to_keep = [i for i in range(len(lookup_table[0][0])) if len(set([t[0][i] for t in lookup_table]))>1]
+      lookup_table = [(tuple([t[0][i] for i in tags_to_keep]),t[1]) for t in lookup_table]
+      lookup_table = dict(lookup_table)
+  ##### TODO: This thing is accepting ordered arguments.
+  ##### That seems daft... Should be keywords rather than relying on the same order every time
+  def lookup_fn(*args):
+    eg_key = list(lookup_table.keys())[0]
+    if len(args) < len(eg_key):
+      raise Exception('Mismatch keys: Source set looks like: %s. Openwater providing %s'%(str(eg_key),str(args)))
 
-        eg_key = list(lookup_table.keys())[0]
-        if len(args) != len(eg_key):
-            raise Exception('Mismatch keys: Source set looks like: %s. Openwater providing %s'%(str(eg_key),str(args)))
+    model = lookup_table.get(tuple(args[:len(eg_key)]))
+    if model is not None:
+      return MODEL_LOOKUP[model.split('.')[-1]]
+      # for keys,model in lookup_table:
+      #     match = True
+      #     arg_copy = list(args[:])
+      #     for key in keys:
+      #         if not key in arg_copy:
+      #             match = False
+      #             break
+      #         arg_copy.remove(key)
+      #     if match:
+      #         return MODEL_LOOKUP[model.split('.')[-1]]
+      # print('No match',args,lookup_table[0])
 
-        if default is None:
-            raise Exception('Cannot find model for %s and no default provided'%(str(args)))
-        return default
-    return lookup_fn
+
+    if default is None:
+      raise Exception('Cannot find model for %s and no default provided'%(str(args)))
+    return default
+  return lookup_fn
 
 
 def link_catchment_lookup(network):
