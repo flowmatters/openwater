@@ -1,6 +1,6 @@
-import graphviz
-from graphviz import Digraph
 def graph_template(template,prefix='',dot=None):
+  import graphviz
+  from graphviz import Digraph
   if not dot:
     dot = Digraph()
 
