@@ -79,6 +79,7 @@ class ScaledTimeSeriesParameteriser(object):
         input_num = matching_inputs[0]
         data = np.array(self.ts)
 
+        initialise_model_inputs(grp,len(nodes_df),len(inputs),len(data))
         i = 0
         for node_name,node in nodes.items():
             offset = 0
