@@ -681,7 +681,9 @@ class ModelGraph(object):
 
     def _write_meta(self,h5f):
         meta = h5f.create_group('META')
-        meta.create_dataset('models',data=[n.encode('utf8') for n in self.model_names])
+        meta.create_dataset('models',
+                            data=self.model_names,
+                            dtype='S%d'%max([len(mn) for mn in self.model_names]))
         if self.time_period is not None:
           dates = np.array([ts.isoformat() for ts in self.time_period],dtype=h5py.special_dtype(vlen=str))
           meta.create_dataset('timeperiod',data=dates)
