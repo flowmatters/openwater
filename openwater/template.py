@@ -1,5 +1,6 @@
 import os
 import sys
+import h5py
 from subprocess import Popen, PIPE
 from queue import Queue, Empty  # python 3.x
 from threading  import Thread
@@ -563,10 +564,11 @@ def sort_nodes(nodes):
 
    
 class ModelGraph(object):
-    def __init__(self,graph,initialise=True):
+    def __init__(self,graph,initialise=True,time_period=None):
         self._graph = graph
         self._parameteriser = None
         self._last_write = None
+        self.time_period = time_period
         if initialise:
             self.initialise()
 
@@ -628,7 +630,6 @@ class ModelGraph(object):
         init_timer('Write meta and dimensions')
         close = False
         if hasattr(f,'upper'):
-            import h5py
             h5f = h5py.File(f,'w')
             close = True
         else:
@@ -681,6 +682,9 @@ class ModelGraph(object):
     def _write_meta(self,h5f):
         meta = h5f.create_group('META')
         meta.create_dataset('models',data=[n.encode('utf8') for n in self.model_names])
+        if self.time_period is not None:
+          dates = np.array([ts.isoformat() for ts in self.time_period],dtype=h5py.special_dtype(vlen=str))
+          meta.create_dataset('timeperiod',data=dates)
 
     def _write_dimensions(self,f):
         dimensions = f.create_group('DIMENSIONS')
@@ -869,6 +873,8 @@ class ModelFile(object):
  #       print(self._dimensions)
         self._links = pd.DataFrame(self._h5f['LINKS'][...],columns=LINK_TABLE_COLUMNS)
         self._models = self._h5f['META']['models'][...]
+        if 'timeperiod' in self._h5f['META']:
+          self.time_period = pd.DatetimeIndex([pd.Timestamp.fromisoformat(d) for d in self._h5f['META']['timeperiod'][...]])
         self._parameteriser = None
 
     def _matches(self,model,**tags):
