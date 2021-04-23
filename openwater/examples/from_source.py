@@ -15,7 +15,8 @@ import geopandas as gpd
 import openwater.nodes as n
 from openwater.catchments import SemiLumpedCatchment, \
     DOWNSTREAM_FLOW_FLUX, DOWNSTREAM_LOAD_FLUX, \
-    UPSTREAM_FLOW_FLUX, UPSTREAM_LOAD_FLUX
+    UPSTREAM_FLOW_FLUX, UPSTREAM_LOAD_FLUX, \
+    get_model_for_provider
 import openwater.template as templating
 from openwater.template import OWLink
 from openwater.config import Parameteriser, ParameterTableAssignment, \
@@ -262,13 +263,13 @@ def build_catchment_graph(model_structure,network,progress=print,custom_processi
     master_template.add_link(flow_link)
 
     for con in model_structure.constituents:
-      from_link.update(constituent=con)
-      to_link.update(constituent=con)
+      con_from_link = dict(**from_link,constituent=con)
+      con_to_link = dict(**to_link,constituent=con)
       con_link = master_template.make_link(
         DOWNSTREAM_LOAD_FLUX,
         UPSTREAM_LOAD_FLUX,
-        from_tags=from_link,
-        to_tags=to_link)
+        from_tags=con_from_link,
+        to_tags=con_to_link)
       master_template.add_link(con_link)
 
   g = None
