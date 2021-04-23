@@ -61,21 +61,22 @@ class OWTemplate(object):
       # node as an input to the graph (and similarly every output of a node
       # as an output of the graph
       # But the node currently stores the model name)
-      pass
+      raise InvalidFluxException(node,'(no name provided)','input')
 
     if not node.has_input(name):
         raise InvalidFluxException(node,name,'input')
 
     if alias is None:
       alias = name
+
     self.inputs.append((node,name,alias,kwargs))
 
   def define_output(self,node,name=None,alias=None,**kwargs):
-    if alias is None:
-      alias = name
-
     if not node.has_output(name):
         raise InvalidFluxException(node,name,'output')
+
+    if alias is None:
+      alias = name
 
     self.outputs.append((node,name,alias,kwargs))
 
@@ -123,19 +124,20 @@ class OWTemplate(object):
   def make_link(self,output_name,input_name,
                 from_node=None,from_tags={},from_exclude_tags=[],
                 to_node=None,to_tags={},to_exclude_tags=[]):
+    link_txt = f'{output_name}({from_node or str(from_tags)}) -> {input_name}({to_node or str(to_tags)})'
     if from_node is None:
         from_node, new_output_name = self.match_labelled_flux(
             self.outputs,output_name,from_tags,from_exclude_tags)
         if from_node is None or new_output_name is None:
             n_outputs = len(self.outputs)
-            raise Exception('No matching output for %s, with tags %s. Have %d outputs'%(new_output_name,str(from_tags),n_outputs))
+            raise Exception('%s: No matching output for %s, with tags %s. Have %d outputs'%(link_txt,new_output_name or output_name,str(from_tags),n_outputs))
         output_name = new_output_name
     if to_node is None:
         to_node, new_input_name = self.match_labelled_flux(
             self.inputs,input_name,to_tags,to_exclude_tags)
 
         if to_node is None or new_input_name is None:
-            raise Exception('No matching input for %s, with tags %s'%(new_input_name,str(to_tags)))
+            raise Exception('%s: No matching input for %s, with tags %s'%(link_txt,new_input_name or input_name,str(to_tags)))
         input_name = new_input_name
 
     return OWLink(from_node,output_name,to_node,input_name)
