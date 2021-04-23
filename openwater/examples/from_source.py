@@ -696,6 +696,7 @@ def build_inflow_node_template(template:templating.OWTemplate,constituents: list
 
 def storage_template_builder(constituent_model_map=None):
   def build_storage_node_template(template,constituents,**kwargs):
+    nonlocal constituent_model_map
     if constituent_model_map is None:
       constituent_model_map = n.LumpedConstituentRouting
     tag_values = list(kwargs.values())
@@ -704,7 +705,7 @@ def storage_template_builder(constituent_model_map=None):
     template.define_output(storage,'outflow',DOWNSTREAM_FLOW_FLUX,**kwargs)
     template.define_input(storage,'inflow',UPSTREAM_FLOW_FLUX,**kwargs)
 
-    for con in self.constituents:
+    for con in constituents:
       constituent_model = get_model_for_provider(
         constituent_model_map,con,*tag_values)
       constituent_node = template.add_node(constituent_model,
@@ -714,8 +715,8 @@ def storage_template_builder(constituent_model_map=None):
       template.define_input(constituent_node,'inflowLoad',UPSTREAM_LOAD_FLUX,constituent=con,**kwargs)
       template.define_output(constituent_node,'outflowLoad',DOWNSTREAM_LOAD_FLUX,constituent=con,**kwargs)
 
-      template.add_link(storage,'volume',constituent_node,'storage')
-      template.add_link(storage,'outflow',constituent_node,'outflow')
+      template.add_link(OWLink(storage,'volume',constituent_node,'storage'))
+      template.add_link(OWLink(storage,'outflow',constituent_node,'outflow'))
 
   return build_storage_node_template
 
