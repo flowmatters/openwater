@@ -369,6 +369,45 @@ class DictParameteriser(object):
                 dest_idx0 = ix
             grp[dest_grp][dest_idx0,dest_idx1] = self.parameters[row[self.tag_name]]
 
+class DimensionParameterSizer(object):
+    def __init__(self):
+        pass
+
+    def applies(self,desc):
+        if not 'Dimensions' in desc:
+            return False
+
+        if not len(desc['Dimensions']):
+            return False
+
+        return True
+
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
+        desc = model_desc.description
+        if not self.applies(desc):
+            return
+
+        dim_sizes = {}
+        current_parameter_idx = 0
+
+        for p in desc['Parameters']:
+            size = 1
+            if ('Dimensions' in p) and len(p['Dimensions']):
+                for d in p['Dimensions']:
+                    size *= dim_sizes[d]
+
+            if p['Name'] in desc['Dimensions']:
+                dim_size = max(grp['parameters'][current_parameter_idx,:])
+                dim_sizes[p['Name']] = dim_size
+
+            current_parameter_idx += size
+
+        len_params = current_parameter_idx
+        grp.create_dataset('new_params',shape=(len_params,len(nodes_df)),dtype=np.float64,fillvalue=0)#,compression='gzip')
+        grp['new_params'][0:grp['parameters'].shape[0],:] = grp['parameters'][:,:]
+        grp.pop('parameters')
+        grp.move('new_params','parameters')
+
 class NestedParameteriser(object):
     def __init__(self,nested=[]):
         self.nested = nested[:]
