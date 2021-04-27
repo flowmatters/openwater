@@ -11,6 +11,26 @@ def _models_match(configured,trial):
 
     return configured == trial.name
 
+def _locate_parameter_in_description(model_desc,parameter):
+    matching_params = [i for i,p in enumerate(model_desc.description['Parameters']) if p['Name']==parameter]
+    if len(matching_params):
+        return 'parameters',matching_params[0],slice(None)
+
+    if parameter in model_desc.description['States']:
+        state_index = model_desc.description['States'].index(parameter)
+        #[i for i,s in enumerate(model_desc.description['States']) if s['Name']==parameter]
+        return 'states',slice(None),state_index
+
+    raise Exception('Unknown parameter or state: %s'%parameter)
+
+def _matches_constraints(constraint_tags,present_tags):
+    for k,v in (constraint_tags or {}).items():
+        if not k in present_tags:
+            return False
+        if kwargs[k] != v:
+            return False
+    return True
+
 def initialise_model_inputs(model_grp,n_cells,n_inputs,n_timesteps):
     if not 'inputs' in model_grp:
         model_grp.create_dataset('inputs',shape=(n_cells,n_inputs,n_timesteps),dtype=np.float64,fillvalue=0)
@@ -42,11 +62,8 @@ class DataframeInput(object):
 
     def get_series(self,**kwargs):
         # TODO Check against constraint tags
-        for k,v in (self.constraint_tags or {}).items():
-            if not k in kwargs:
-                return None
-            if kwargs[k] != v:
-                return None
+        if not _matches_constraints(self.constraint_tags,kwargs):
+            return None
 
         col_name = self.column_format.substitute(**kwargs)
         if col_name in self.df.columns:
@@ -258,7 +275,15 @@ class ParameterTableAssignment(object):
             col = node[self.column_dim]
             row = node[self.row_dim]
 
-            param = self.df[col][row]
+            if col not in self.df.columns and self.skip_na:
+                continue
+
+            series = self.df[col]
+
+            if row not in series.index and self.skip_na:
+                continue
+
+            param = series[row]
             if np.isnan(param) and self.skip_na:
                 continue
 
@@ -268,16 +293,7 @@ class ParameterTableAssignment(object):
         grp[dest_grp][dest_idx0,dest_idx1]=param_data
 
     def locate(self,model_desc,parameter):
-        matching_params = [i for i,p in enumerate(model_desc.description['Parameters']) if p['Name']==parameter]
-        if len(matching_params):
-            return 'parameters',matching_params[0],slice(None)
-
-        if parameter in model_desc.description['States']:
-            state_index = model_desc.description['States'].index(parameter)
-            #[i for i,s in enumerate(model_desc.description['States']) if s['Name']==parameter]
-            return 'states',slice(None),state_index
-
-        raise Exception('Unknown parameter or state: %s'%parameter)
+        return _locate_parameter_in_description(model_desc,parameter)
 
 class DefaultParameteriser(object):
     def __init__(self,model_name=None,**kwargs):
@@ -328,6 +344,30 @@ class UniformInput(object):
               grp['inputs'][cell,input_num,:] = self.value(cell)
             else:
               grp['inputs'][cell,input_num,:] = self.value
+
+class DictParameteriser(object):
+    def __init__(self,parameter,tag_name,model=None,parameters={},constraints={},**kwargs):
+        self.parameter = parameter
+        self.tag_name = tag_name
+        self.model = model
+        self.constraints = constraints
+        self.parameters = parameters
+        self.parameters.update(**kwargs)
+
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
+        if not _models_match(self.model,model_desc):
+            return
+
+        dest_grp,dest_idx0,dest_idx1 = _locate_parameter_in_description(model_desc,self.parameter)
+        for ix, row in nodes_df.iterrows():
+            if not _matches_constraints(self.constraints,row):
+                continue
+
+            if dest_grp=='parameters':
+                dest_idx1 = ix
+            else:
+                dest_idx0 = ix
+            grp[dest_grp][dest_idx0,dest_idx1] = self.parameters[row[self.tag_name]]
 
 class NestedParameteriser(object):
     def __init__(self,nested=[]):
