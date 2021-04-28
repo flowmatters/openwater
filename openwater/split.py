@@ -1,5 +1,6 @@
 import h5py
 from .template import ModelFile
+from openwater.results import OpenwaterSplitResults
 
 def create_or_reuse_model_group(fn,existing):
   if fn is None:
@@ -62,4 +63,22 @@ def split_model(orig_model: str,
       starting_ix = ending_ix
 
 
+def run_split_model(structure,params=None,init_states=None,inputs=None,dests=None,final_states=None,**kwargs):
+  params = params or structure
+  init_states = init_states or structure
+  inputs = inputs or [structure]
 
+  all_results = []
+  for ix,(input_f, dest_f, states_f) in enumerate(zip(inputs,dests,final_states)):
+    print(f'Iteration {ix}: {input_f}/{init_states} => {dest_f}/{states_f}')
+    run_results = _run(None,
+                        structure,
+                        dest_f,
+                        initial_states=init_states,
+                        final_states=states_f,
+                        input_timeseries=input_f,
+                        parameters=params,
+                        **kwargs)
+    init_states = states_f
+    all_results.append(run_results)
+  return OpenwaterSplitResults(all_results,time_period=TIME_PERIOD)
