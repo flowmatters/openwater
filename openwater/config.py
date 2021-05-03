@@ -2,7 +2,8 @@ from string import Template
 import numpy as np
 import pandas as pd
 import string
-from .array_params import get_parameter_locations
+from .array_params import get_parameter_locations, param_starts
+from .nodes import create_indexed_parameter_table
 
 def _models_match(configured,trial):
     if configured is None:
@@ -396,6 +397,89 @@ class DimensionParameterSizer(object):
         grp['new_params'][0:grp['parameters'].shape[0],:] = grp['parameters'][:,:]
         grp.pop('parameters')
         grp.move('new_params','parameters')
+
+
+def populate_table_parameters(existing,param_start,tables,key_format,column_lookup={}):
+    '''
+    '''
+
+    #existing = model.indexed_parameters(model_type)
+    key_format = string.Template(key_format)
+    arr = np.array(existing)
+
+#     tables = {fn:pd.read_csv(fn,index_col=0) for fn in glob(pattern)}
+    #{(fn.split('/')[-1].split('.')[0].replace('storage_lva_','')):pd.read_csv(fn,index_col=0) for fn in glob(os.path.join(SRC_FILES,'storage_lva*csv*'))}
+    tags = existing.index.names
+    for i,ix_vals in enumerate(existing.index):
+        vals = {}
+        if len(tags)==1:
+            vals[tags[0]]=ix_vals
+        else:
+            print(ix_vals)
+            raise Exception('not supported')
+        key = key_format.substitute(**vals)
+        if key not in tables:
+            continue
+        tbl = tables[key]
+#             print('No file %s for tags %s'%(fn,str(row)))
+        
+        # Extract tags from fn
+        for col in tbl.columns:
+            if col in param_start:
+                column_lookup[col]=col
+
+        print(i,ix_vals)
+        for param,col in column_lookup.items():
+            vals = tbl[col]
+            param_idx = param_start[param]
+            print(param,i,param_idx,len(vals))
+            arr[i,param_idx:(param_idx+len(vals))] = np.array(vals)
+    result = pd.DataFrame(arr,index=existing.index,columns=existing.columns)
+    return result
+
+def _raw_parameters(model_map,vals):
+    df = pd.DataFrame(model_map)
+    dim_cols = set(df.columns) - {'_run_idx'}
+    df = df.set_index(list(dim_cols))
+
+    param_df = pd.DataFrame(vals).transpose().reindex(index=df['_run_idx'])
+
+    result = param_df.set_index(df.index)
+#     for k,v in tags.items():
+#         result = result[result[k]==v]
+
+    return result
+
+class LoadArraysParameters(object):
+    def __init__(self,table_lookup,key_format,len_parameter,column_lookup={},model=None):
+        self.table_lookup = table_lookup
+        self.key_format = key_format
+        self.column_lookup = column_lookup
+        self.len_parameter = len_parameter
+        self.model = model
+
+        self.lengths = {k:len(tbl) for k,tbl in table_lookup.items()}
+        self.nested = [
+            DictParameteriser(len_parameter,key_format,model,self.lengths),
+            DimensionParameterSizer()
+        ]
+
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
+        if not _models_match(self.model,model_desc):
+            return
+        print('Running for ',model_desc.name)
+        for p in self.nested:
+            p.parameterise(model_desc,grp,instances,dims,nodes,nodes_df)
+
+        raw = _raw_parameters(dims,grp['parameters'][...])
+        indexed = create_indexed_parameter_table(model_desc.description,raw)
+        starts = param_starts(model_desc.description,indexed.transpose())
+        populated = populate_table_parameters(indexed,starts,self.table_lookup,self.key_format)
+        final = np.array(populated).transpose()
+        for ix, row in nodes_df.iterrows():
+            run_index = row._run_idx
+            
+            grp['parameters'][:,run_index] = final[:,ix]
 
 class NestedParameteriser(object):
     def __init__(self,nested=[]):

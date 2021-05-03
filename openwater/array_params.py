@@ -1,5 +1,5 @@
 
-
+import numpy as np
 
 def get_parameter_locations(desc,current):
     result = []
@@ -24,3 +24,13 @@ def get_parameter_locations(desc,current):
         result.append((p_start,p_end))
     return result
 
+def param_starts(desc,current):
+    param_locs = get_parameter_locations(desc,np.array(current))
+    param_starts = {}
+    current_idx=0
+    for ix,param in enumerate(desc['Parameters']):
+        p_start = param_locs[ix][0]
+        param_starts[param['Name']]=p_start
+    return param_starts
+
+        
