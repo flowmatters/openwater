@@ -389,22 +389,9 @@ class DimensionParameterSizer(object):
         if not self.applies(desc):
             return
 
-        dim_sizes = {}
-        current_parameter_idx = 0
+        new_param_locs = get_parameter_locations(desc,grp['parameters'][...])
+        len_params = new_param_locs[-1][1]
 
-        for p in desc['Parameters']:
-            size = 1
-            if ('Dimensions' in p) and len(p['Dimensions']):
-                for d in p['Dimensions']:
-                    size *= dim_sizes[d]
-
-            if p['Name'] in desc['Dimensions']:
-                dim_size = max(grp['parameters'][current_parameter_idx,:])
-                dim_sizes[p['Name']] = dim_size
-
-            current_parameter_idx += size
-
-        len_params = current_parameter_idx
         grp.create_dataset('new_params',shape=(len_params,len(nodes_df)),dtype=np.float64,fillvalue=0)#,compression='gzip')
         grp['new_params'][0:grp['parameters'].shape[0],:] = grp['parameters'][:,:]
         grp.pop('parameters')
