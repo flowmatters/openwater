@@ -23,6 +23,7 @@ from openwater.config import Parameteriser, ParameterTableAssignment, \
     NestedParameteriser, DataframeInputs, UniformParameteriser
 from openwater.timing import init_timer, report_time, close_timer
 import json
+from functools import reduce
 from veneer.general import _extend_network
 
 EXPECTED_LINK_PREFIX='link for catchment '
@@ -120,6 +121,41 @@ def build_model_lookup(source_source=None,lookup_table=None,default=None,simplif
     return default
   return lookup_fn
 
+def merge_storage_tables(directory):
+    def read_csv(fn):
+        return pd.read_csv(os.path.join(directory,f'{fn}.csv.gz'),index_col=0)
+    storage_meta = json.load(open(os.path.join(directory,'storage_meta.json')))
+
+    outlet_links = storage_meta['outlet_links']
+    storages = list(outlet_links.keys())
+    outlets = storage_meta['outlets']
+    outlets = {n:outlets[l[0]] for n,l in outlet_links.items()}
+
+    result = {}
+    for node,node_outlets in outlets.items():
+        lva = read_csv(f'storage_lva_{node}')
+        lva = lva.set_index('level')
+        release_curves = []
+        levels = set(lva.index)
+        for outlet in node_outlets:
+            release_curve = read_csv(f'storage_release_{node}_{outlet}')
+            levels = levels.union(set(release_curve.level))
+            release_curve = release_curve.set_index('level')
+            release_curves.append(release_curve)
+        levels = sorted(levels)
+        release_curves = [tbl.reindex(levels).interpolate() for tbl in release_curves]
+        lva = lva.reindex(levels).interpolate()
+
+        node_table = reduce(lambda a,b: a+b,release_curves)
+        node_table['volumes'] = lva.volume
+        node_table['areas'] = lva.area
+        node_table = node_table.reset_index().rename(columns={
+            'minimum':'minRelease',
+            'maximum':'maxRelease',
+            'level':'levels'
+        })
+        result[node] = node_table
+    return result
 
 def link_catchment_lookup(network):
   res = {}
