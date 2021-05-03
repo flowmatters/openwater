@@ -12,6 +12,8 @@ from functools import reduce
 from . import nodes as node_types
 from .timing import init_timer, report_time, close_timer
 from itertools import chain
+from .array_params import get_parameter_locations
+from .nodes import create_indexed_parameter_table
 
 # Non blocking IO solution from http://stackoverflow.com/a/4896288
 ON_POSIX = 'posix' in sys.builtin_module_names
@@ -915,6 +917,22 @@ class ModelFile(object):
 
         return {d:[di[i] for di in dim_columns] for i,d in enumerate(m_dims+['_run_idx'])}
 
+    def _raw_parameters(self,model,**tags):
+        vals = self._h5f['MODELS'][model]['parameters'][...]
+
+        model_map = self._map_model_dims('Storage')
+        df = pd.DataFrame(model_map)
+        dim_cols = set(df.columns) - {'_run_idx'}
+        df = df.set_index(list(dim_cols))
+
+        param_df = pd.DataFrame(vals).transpose().reindex(index=df['_run_idx'])
+        
+        result = param_df.set_index(df.index)
+        for k,v in tags.items():
+            result = result[result[k]==v]
+
+        return result
+
     def parameters(self,model,**tags):
         vals = self._h5f['MODELS'][model]['parameters'][...]
         desc = getattr(node_types,model)
@@ -935,6 +953,11 @@ class ModelFile(object):
             result = result[result[k]==v]
 
         return result
+
+    def indexed_parameters(self,model,**tags):
+        raw = self._raw_parameters(model,**tags)
+        desc = getattr(node_types,model).description
+        return create_indexed_parameter_table(desc,raw)
 
     def write(self):
         try:
