@@ -1,6 +1,8 @@
 from string import Template
 import numpy as np
 import pandas as pd
+import string
+from .array_params import get_parameter_locations
 
 def _models_match(configured,trial):
     if configured is None:
@@ -346,9 +348,9 @@ class UniformInput(object):
               grp['inputs'][cell,input_num,:] = self.value
 
 class DictParameteriser(object):
-    def __init__(self,parameter,tag_name,model=None,parameters={},constraints={},**kwargs):
+    def __init__(self,parameter,key_format,model=None,parameters={},constraints={},**kwargs):
         self.parameter = parameter
-        self.tag_name = tag_name
+        self.key_format = string.Template(key_format)
         self.model = model
         self.constraints = constraints
         self.parameters = parameters
@@ -364,10 +366,10 @@ class DictParameteriser(object):
                 continue
 
             if dest_grp=='parameters':
-                dest_idx1 = ix
+                dest_idx1 = row._run_idx
             else:
-                dest_idx0 = ix
-            grp[dest_grp][dest_idx0,dest_idx1] = self.parameters[row[self.tag_name]]
+                dest_idx0 = row._run_idx
+            grp[dest_grp][dest_idx0,dest_idx1] = self.parameters[self.key_format.substitute(row)]
 
 class DimensionParameterSizer(object):
     def __init__(self):
