@@ -123,6 +123,11 @@ class OpenwaterResults(object):
 
     all_sequences = {}
     for i,col_name in enumerate(dims[columns]):
+      if i == run_map.shape[report_dim]:
+        # Looks like a dummy tag value not present here
+        # HACK. Could be other things (eg incomplete set of tags)
+        continue
+
       current_slices = slices[:]
       current_slices[report_dim] = i
       run_indices = run_map[tuple(current_slices)]
