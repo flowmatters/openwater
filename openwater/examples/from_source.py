@@ -123,7 +123,10 @@ def build_model_lookup(source_source=None,lookup_table=None,default=None,simplif
 
 def merge_storage_tables(directory):
     def read_csv(fn):
-        return pd.read_csv(os.path.join(directory,f'{fn}.csv.gz'),index_col=0)
+        fn = os.path.join(directory,f'{fn}.csv')
+        if not os.path.exists(fn):
+            fn = fn + '.gz'
+        return pd.read_csv(fn,index_col=0)
     storage_meta = json.load(open(os.path.join(directory,'storage_meta.json')))
 
     outlet_links = storage_meta['outlet_links']
