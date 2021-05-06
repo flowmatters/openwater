@@ -28,9 +28,9 @@ def _locate_parameter_in_description(model_desc,parameter):
 
 def _matches_constraints(constraint_tags,present_tags):
     for k,v in (constraint_tags or {}).items():
-        if not k in present_tags:
+        if k not in present_tags:
             return False
-        if kwargs[k] != v:
+        if present_tags[k] != v:
             return False
     return True
 
@@ -410,6 +410,7 @@ def populate_table_parameters(existing,param_start,tables,key_format,column_look
 #     tables = {fn:pd.read_csv(fn,index_col=0) for fn in glob(pattern)}
     #{(fn.split('/')[-1].split('.')[0].replace('storage_lva_','')):pd.read_csv(fn,index_col=0) for fn in glob(os.path.join(SRC_FILES,'storage_lva*csv*'))}
     tags = existing.index.names
+    missed = False
     for i,ix_vals in enumerate(existing.index):
         vals = {}
         if len(tags)==1:
@@ -419,6 +420,8 @@ def populate_table_parameters(existing,param_start,tables,key_format,column_look
             raise Exception('not supported')
         key = key_format.substitute(**vals)
         if key not in tables:
+            print(f'==== NO TABLE WITH KEY {key}, format={key_format.template}, vals={vals}, tags={tags} ====')
+            missed = True
             continue
         tbl = tables[key]
 #             print('No file %s for tags %s'%(fn,str(row)))
@@ -435,11 +438,13 @@ def populate_table_parameters(existing,param_start,tables,key_format,column_look
             print(param,i,param_idx,len(vals))
             arr[i,param_idx:(param_idx+len(vals))] = np.array(vals)
     result = pd.DataFrame(arr,index=existing.index,columns=existing.columns)
+    assert not missed
     return result
 
 def _raw_parameters(model_map,vals):
     df = pd.DataFrame(model_map)
-    dim_cols = set(df.columns) - {'_run_idx'}
+    print(df)
+    dim_cols = [col for col in df.columns if not col.startswith('_')]
     df = df.set_index(list(dim_cols))
 
     param_df = pd.DataFrame(vals).transpose().reindex(index=df['_run_idx'])
@@ -471,7 +476,7 @@ class LoadArraysParameters(object):
         for p in self.nested:
             p.parameterise(model_desc,grp,instances,dims,nodes,nodes_df)
 
-        raw = _raw_parameters(dims,grp['parameters'][...])
+        raw = _raw_parameters(nodes_df,grp['parameters'][...])
         indexed = create_indexed_parameter_table(model_desc.description,raw)
         starts = param_starts(model_desc.description,indexed.transpose())
         populated = populate_table_parameters(indexed,starts,self.table_lookup,self.key_format)
