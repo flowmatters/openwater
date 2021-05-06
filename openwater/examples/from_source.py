@@ -182,42 +182,41 @@ def make_node_linkages(row,nodes):
     to_c = row.to_name
     direct_link_catchments = not pd.isna(row.to_node) #not(pd.isna(from_c) or pd.isna(to_c))
 
-    if pd.isna(from_c):
-      std_source = {
-        'link_name':row.link_name
-      }
-    else:
-      std_source = {
-        'catchment':from_c
-      }
+    def catchment_or_link(c,l):
+        if pd.isna(c):
+            return {
+                'link_name':l
+            }
+        return {
+            'catchment':c
+        }
 
-    if pd.isna(to_c):
-      std_dest = {
-        'link_name':row.to_link_name
-      }
-    else:
-      std_dest = {
-        'catchment':to_c
-      }
+    std_source = catchment_or_link(from_c,row.link_name)
+    std_dest = catchment_or_link(to_c,row.to_link_name)
 
     link_from_node = None
+    if nodes.id.isin([row.from_node]).any() or nodes.id.isin([row.to_node]).any():
+        if pd.isna(row.to_node):
+            relevant_node = row.from_node
+        else:
+            relevant_node = row.to_node
 
-    if pd.isna(row.to_node) and nodes.id.isin([row.from_node]).any():
-      link_from_node = row.from_node
-    elif nodes.id.isin([row.to_node]).any():
-      link_from_node = row.to_node
+        node_details = nodes[nodes.id==relevant_node]
+        node_name = node_details.name.iloc[0]
+        node_linkage = {
+            'node_name':node_name
+        }
+        linkages.append((
+            node_linkage,
+            std_dest
+        ))
 
-    if link_from_node is not None:
-      node_name = list(nodes[nodes.id==link_from_node].name)[0]
-      linkages.append((
-        {
-          'node_name':node_name
-        },
-        std_dest
-      ))
-
-      # IF node takes upstream input
-      # direct_link_catchments = False
+        if node_details.accepts_inflow.iloc[0]:
+            direct_link_catchments = False
+            linkages.append((
+                std_source,
+                node_linkage
+            ))
 
     if direct_link_catchments:
         linkages.append((
@@ -272,12 +271,13 @@ def build_catchment_graph(model_structure,network,progress=print,custom_processi
     templates.append(tpl)
 
   interesting_nodes = filter_nodes(nodes)
-  print(interesting_nodes[['id','name','icon']])
+  interesting_nodes['accepts_inflow'] = False
   for ix,node in interesting_nodes.iterrows():
-      print(ix,node)
       node_type = node['icon'].split('/')[-1].replace('NodeModel','')
       tpl = model_structure.get_node_template(node_name=node['name'],node_type=node_type).flatten()
+      interesting_nodes.loc[ix,'accepts_inflow']=tpl.has_input(UPSTREAM_FLOW_FLUX)
       templates.append(tpl)
+  print(interesting_nodes[['id','name','icon','accepts_inflow']])
 
   report_time('Link catchments')
 

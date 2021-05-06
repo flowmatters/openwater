@@ -82,6 +82,15 @@ class OWTemplate(object):
 
     self.outputs.append((node,name,alias,kwargs))
 
+  def _has_flux(self,alias,fluxes):
+    for fl in fluxes:
+      if fl[2]==alias:
+        return True
+    return False
+
+  def has_input(self,alias):
+    return self._has_flux(alias,self.inputs)
+
   def add_node(self,model_type=None,name=None,process=None,**tags):
     # if hasattr(node_or_name,'model_type'):
     #   self.nodes.append(node_or_name)
