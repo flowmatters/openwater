@@ -695,7 +695,7 @@ class ModelGraph(object):
     def _write_meta(self,h5f):
         meta = h5f.create_group('META')
         meta.create_dataset('models',
-                            data=self.model_names,
+                            data=[np.string_(n) for n in self.model_names],
                             dtype='S%d'%max([len(mn) for mn in self.model_names]))
         if self.time_period is not None:
           dates = np.array([ts.isoformat() for ts in self.time_period],dtype=h5py.special_dtype(vlen=str))
@@ -736,9 +736,9 @@ class ModelGraph(object):
                 for node in node_set:
                     if not dim in nodes[node]:
                         nodes[node][dim] = dummy_val
-                        if not added_dummy:
+                        if not added_dummy and (dummy_val not in self.distinct_values[dim]):
                             self.distinct_values[dim].append(dummy_val)
-                            added_dummy = True
+                        added_dummy = True
 
         dim_values = {d:sorted({nodes[n][d] for n in node_set}) for d in dimensions}
         attributes = {d:vals[0] for d,vals in dim_values.items() if (len(vals)==1) and (len(node_set)>1)}
