@@ -14,6 +14,7 @@ from .timing import init_timer, report_time, close_timer
 from itertools import chain
 from .array_params import get_parameter_locations
 from .nodes import create_indexed_parameter_table
+from .file import _tabulate_model_scalars_from_file
 
 # Non blocking IO solution from http://stackoverflow.com/a/4896288
 ON_POSIX = 'posix' in sys.builtin_module_names
@@ -943,25 +944,11 @@ class ModelFile(object):
         return result
 
     def parameters(self,model,**tags):
-        vals = self._h5f['MODELS'][model]['parameters'][...]
-        desc = getattr(node_types,model)
-        names = [p['Name'] for p in desc.description['Parameters']]
-
-        result = pd.DataFrame(self._map_model_dims(model))
-        print(vals.shape)
-        order = list(result['_run_idx'])
-        for ix,name in enumerate(names):
-            result[name] = vals[ix,:][order]
-
-        # result = pd.DataFrame(vals.transpose(),columns=names)
-        # for k,vals in dims.items():
-        #     result = result[:len(vals)]
-        #     result[k] = vals
-
-        for k,v in tags.items():
-            result = result[result[k]==v]
-
-        return result
+        return _tabulate_model_scalars_from_file(self._h5f,
+                                                 model,
+                                                 self._map_model_dims(model),
+                                                 'parameters',
+                                                 **tags)
 
     def indexed_parameters(self,model,**tags):
         raw = self._raw_parameters(model,**tags)
