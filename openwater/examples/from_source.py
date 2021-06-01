@@ -127,7 +127,11 @@ def merge_storage_tables(directory):
         if not os.path.exists(fn):
             fn = fn + '.gz'
         return pd.read_csv(fn,index_col=0)
-    storage_meta = json.load(open(os.path.join(directory,'storage_meta.json')))
+    meta_fn = os.path.join(directory,'storage_meta.json')
+    if not os.path.exists(meta_fn):
+      return None
+
+    storage_meta = json.load(open(meta_fn))
 
     outlet_links = storage_meta['outlet_links']
     storages = list(outlet_links.keys())
