@@ -26,6 +26,8 @@ The underlying model algortihms are implemented in Golang, with higher level mod
 
 Software requirements are described [here](environment.md)
 
+In addition to working through Python, it is possible to access some of the features of Openwater using standalone, [command line programs](programs.md).
+
 ## Openwater concepts
 
 Openwater allows users to construct models of a particular system (eg a model of a particular river catchment), comprising a _graph_ of component models, each typically representing some process, occurring at some location, within the overall system. For example, a component model might represent the _rainfall runoff process_, within a single subcatchment of a broader catchment. The graph provides the overall structure, linking outputs of individual component models to inputs of other component models.
