@@ -95,25 +95,25 @@ The `init` section describes the default behaviour for initialising state variab
 /*OW-SPEC
 EmcDwc:
     inputs:
-		quickflow: m^3.s^-1
-		baseflow: m^3.s^-1
+        quickflow: m^3.s^-1
+        baseflow: m^3.s^-1
     states:
     parameters:
-		EMC: '[0.1,10000]mg.L^-1 Event Mean Concentration'
-		DWC: '[0.1,10000]mg.L^-1 Dry Weather Concentration'
-	outputs:
-		quickLoad: kg.s^-1
-		slowLoad: kg.s^-1
-		totalLoad: kg.s^-1
-	implementation:
-		function: emcDWC
-		type: scalar
-		lang: go
-		outputs: params
-	init:
-		zero: true
-	tags:
-		constituent generation
+        EMC: '[0.1,10000]mg.L^-1 Event Mean Concentration'
+        DWC: '[0.1,10000]mg.L^-1 Dry Weather Concentration'
+    outputs:
+        quickLoad: kg.s^-1
+        slowLoad: kg.s^-1
+        totalLoad: kg.s^-1
+    implementation:
+        function: emcDWC
+        type: scalar
+        lang: go
+        outputs: params
+    init:
+        zero: true
+    tags:
+        constituent generation
 */
 ```
 
