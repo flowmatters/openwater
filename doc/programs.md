@@ -84,7 +84,7 @@ ow-sim my-model.h5 my-model-outputs.h5
 
 `ow-single` can also be used as a standalone program, where it will read the model configuration on standard input in JSON format, with the following structure:
 
-```json
+```
 {
     "Name":"model name, eg EmcDwc",
     "Inputs":[
