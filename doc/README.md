@@ -14,22 +14,25 @@ Openwater is a catchment modelling system built with the following objectives:
 3. Free and Open Source:
   * **Free as in speech** - License allows you to use, share and modify the software
   * **Permissive License** - Means you can create a proprietary derivative if you wish
-  * **Community** - Hopefully people see value in working together to advance the ocmmon good
+  * **Community** - Hopefully people see value in working together to advance the common good
 
+## Using Openwater
 
+Openwater is developed as software libraries, intended to be accessed from a scripting environment or incorporated into other programs.
 
+The underlying model algortihms are implemented in Golang, with higher level model interaction, such as setup, parameterisation and reporting, supported through a Python library. This Python library is intended to be used from interactive scripting environments, such as Jupyter notebooks, or to serve the basis for developing higher level, application specific programs.
 
-```python
+**TODO: Figure demonstrating layered approach.
 
-```
+## Openwater concepts
 
+Openwater allows users to construct models of a particular system (eg a model of a particular river catchment), comprising a _graph_ of component models, each typically representing some process, occurring at some location, within the overall system. For example, a component model might represent the _rainfall runoff process_, within a single subcatchment of a broader catchment. The graph provides the overall structure, linking outputs of individual component models to inputs of other component models.
 
-```python
+As these graphs can grow to thousands of individual nodes, Openwater provides, and encourages, a number of mechanisms for organising these graphs, including templates, for repeatedly defining similar graphs, such as using the same graph for each elementary spatial unit, and dimensions, as a way of attributing and identifying individual nodes within the graph.
 
-```
+These concepts are elaborated in [opewanter-concepts](openwater-concepts.md), and demonstrated in the  following examples.
 
-
-##  Example 1 - Semi Lumped Catchment Model
+###  Example 1 - Semi Lumped Catchment Model
 
 Model characteristics
 
@@ -42,11 +45,7 @@ In this example, we'll use an Openwater model _'recipe'_ - a predefined method f
 **_See [Example-1-1-SimpleCatchmentModel.ipynb](Example-1-1-SimpleCatchmentModel.ipynb)_**
 
 
-```python
-
-```
-
-## Example 2 - Custom Model Template
+### Example 2 - Custom Model Template
 
 The first example demonstrates how a model recipe can be used to setup a model based on a predefined model structure.
 
@@ -69,16 +68,10 @@ The semi-lumped catchment example, above, is built using a variation of this 3-t
 
 **_See [Example-1-2-CustomTemplate.ipynb](Example-1-2-CustomTemplate.ipynb)_**
 
+## Developing component models
 
-```python
+Individual component models implement discrete algorithms, such as rainfall runoff, or river transport processes.
 
-```
+These component models are implemented in Golang, although they could be implemented in other natively compiled languages, such as Fortran or C.
 
-## Next - Graph Concepts
-
-The [next notebook (2-Openwater-Concepts)](2-Openwater-Concepts.ipynb) elaborates on core concepts of the model graph, as well as graph metadata for retaining the key dimensions of the model.
-
-
-```python
-
-```
+Information regarding component model development and interacting with the Openwater framework is described [elsewhere](model-kernels.md).

@@ -39,11 +39,6 @@ When assigning nodes to generations, Open Water seeks to:
 
 
 
-
-```python
-
-```
-
 ## Model Dimensions
 
 The Openwater model is, ultimately, a single graph of components and linkages. While, conceptually, the model might be made up of response units, grouped into catchments, which exist in a topology, the graph represents the finest scale model components. That is, the graph doesn't retain any information about the user's conceptualisation of the model.
@@ -54,24 +49,12 @@ For example, in the semi-lumped catchment recipe, each of the _n_ sub-catchments
 
 Similarly, each of the sub-catchments has p Constituents Generation Units, each of which generations each of the q Constituents using a constituent generation model, so constituent generation has the three dimensions - Subcatchment, Constituent Generation Unit and Constituent.
 
-
-```python
-
-```
-
-
-```python
-
-```
+See [dimensions](dimensions.md) for  more details.
 
 ## Helpers, Parameterisers and Recipes
 
+See the following for details:
 
-```python
-
-```
-
-
-```python
-
-```
+* [templates](templates.md)
+* [parameterisation](parameterisation.md)
+* [reporting.md](reporting.md)
