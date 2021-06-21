@@ -24,6 +24,8 @@ The underlying model algortihms are implemented in Golang, with higher level mod
 
 **TODO: Figure demonstrating layered approach.
 
+Software requirements are described [here](environment.md)
+
 ## Openwater concepts
 
 Openwater allows users to construct models of a particular system (eg a model of a particular river catchment), comprising a _graph_ of component models, each typically representing some process, occurring at some location, within the overall system. For example, a component model might represent the _rainfall runoff process_, within a single subcatchment of a broader catchment. The graph provides the overall structure, linking outputs of individual component models to inputs of other component models.
