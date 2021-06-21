@@ -30,7 +30,7 @@ Openwater allows users to construct models of a particular system (eg a model of
 
 As these graphs can grow to thousands of individual nodes, Openwater provides, and encourages, a number of mechanisms for organising these graphs, including templates, for repeatedly defining similar graphs, such as using the same graph for each elementary spatial unit, and dimensions, as a way of attributing and identifying individual nodes within the graph.
 
-These concepts are elaborated in [opewanter-concepts](openwater-concepts.md), and demonstrated in the  following examples.
+These concepts are elaborated in [openwater-concepts](openwater-concepts.md), and demonstrated in the  following examples.
 
 ###  Example 1 - Semi Lumped Catchment Model
 
