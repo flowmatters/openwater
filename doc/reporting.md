@@ -4,7 +4,7 @@ When Openwater models are run, a results file is produced. Presently, the result
 
 The results file also contains _input_ timeseries for model nodes that receive inputs from predecessor model nodes. These timeseries are recorded as results as they may be the sum of outputs from multiple predecessor nodes and hence they may not be easily reconstructed.
 
-While the results files, and, indeed the model input files, are HDF5 files, it is recommended to use the Openwater Python package routines for retrieving results. Presently, there are two main ways to retrieve results:
+The results files, and, indeed the model input files, are HDF5 files, and, as such can be read by any software that supports HDF5 files. However, it is recommended to use the Openwater Python package routines for retrieving results. Presently, there are two main ways to retrieve results:
 
 1. Retrieve timeseries from the model, either individually or aggregated across a group of nodes sharing _one_ common tag, and
 2. Retrieving tables of results, aggregated from timeseries to a scalar, summarised across a group of nodes sharing _two_ common tags.
