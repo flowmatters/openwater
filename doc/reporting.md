@@ -39,13 +39,23 @@ In this case, as in retrieving tables, below, the first two method arguments spe
 
 *Note:* It is also possible to retrieve inputs using the same method, so, for example, `rainfall` can be substituted for `runoff` in the above example. If the input is part of the model file, those values will be returned. If however, the model input comes from predecessor nodes in the model graph, those computed inputs will be returned.
 
-The third parameter specifies which tag is used to select nodes and name individual columns. In this example, the `catchment` tag is used, so the columns of the dataframe will be named for the different values of the `catchment` tag.
+With the first parameter specifying a component model (`Sacramento` in this example), there will typically be multiple model graph nodes using the same model, and, hence, multiple independent timeseries for the given variable (`runoff` in the example). From the third parameter onwards, the parameters tell the reporting tools how to reconcile the different graph nodes in the results returned. There are, broadly, three things we can do:
 
-However, although we have specified a tag for the DataFrame columns, multiple model nodes may be matched. For example, in a model with multiple hydrological response units (HRU) within each catchment, the `catchment` tag will match nodes for each HRU. In this situation, the results from each node must be aggregated with the results from other nodes destined for the same column (in this case, other nodes with the same `catchment` tag). The fourth argument (`mean` in the example) is used to specify a simple statistic by which these multiple individual timeseries are aggregated. The statistic is applied across the various timeseries, at each timestep.
+1. Put different nodes in different columns of the `DataFrame`, distinguishing the columns based on a tag. This is done exactly once.
+2. Constrain the results search to only match nodes where a particular tag has a specified value. This can be done zero or more times. If this option is not used, then the results will match **all** model graph nodes using the model.
+3. A summary statistic to use when combining the results from multiple model graph nodes into a single column.
+
+The third parameter specifies which tag is used to map model graph nodes to individual columns, and, consequently, the name of that column. In this example, the `catchment` tag is used, so the columns of the dataframe will be named for the different values of the `catchment` tag, and the values in a particular column (eg `SC #1`), will be drawn from one or more model graph nodes with that value for the `catchment` tag.
+
+However, although we have specified a tag (`catchment`) for the DataFrame columns, multiple model graph nodes may be matched, meaning that the results from those different nodes need to be aggregated before being stored in the column. For example, in a model with multiple hydrological response units (HRU) within each catchment, a single value of the `catchment` tag will match model graph nodes for each HRU. In this situation, the results from each node must be aggregated with the results from other matching nodes which are to be stored in the same column (in this case, other nodes with the same `catchment` tag). The fourth argument to `time_series` is used to specify a simple statistic by which these multiple individual timeseries are aggregated. The statistic is applied across the various timeseries, at each timestep. In the example, we have specified `mean`, so the resulting column will be a time series of the average runoff, per timestep, from all HRUs in the catchment. 
 
 Additional arguments can be provided in order to _constrain_ the model nodes that are matched, by specifying particular tags of interest. In this case, the `hru` argument specifies that only model nodes where the `hru` tag is equal to `Grazing Open` will be used. Multiple constraints can be specified and it is not necessary to specify any such constraints.
 
-In this case, the single constraint tag (`hru`) is a valid Python identifier (ie, it is a string that *could* be used as a variable name or function name). If however, the tag _is not_ a valid Python identifier, it is necessary to use a somewhat more cumbersome syntax:
+Importantly, the constraint tags may limit the results search sufficiently that there are, at most, one model graph node matched for each column. In this case, the aggregator statistic has no effect.
+
+### Alternate syntax for specifying constraints
+
+In the example, the single constraint tag (`hru`) is a valid Python identifier (ie, it is a string that *could* be used as a variable name or function name). If however, the tag _is not_ a valid Python identifier, it is necessary to use a somewhat more cumbersome syntax:
 
 ```python
 ts = results.time_series('Sacramento','runoff','catchment','mean',**{'Functional Unit':'Grazing Open'})
