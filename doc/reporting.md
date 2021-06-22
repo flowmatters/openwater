@@ -55,7 +55,7 @@ Importantly, the constraint tags may limit the results search sufficiently that 
 
 ### Alternate syntax for specifying constraints
 
-In the example, the single constraint tag (`hru`) is a valid Python identifier (ie, it is a string that *could* be used as a variable name or function name). If however, the tag _is not_ a valid Python identifier, it is necessary to use a somewhat more cumbersome syntax:
+In the example, the single constraint tag (`hru`) happens to be a valid Python identifier (ie, it is a string that *could* be used as a variable name or function name). If however, the tag _is not_ a valid Python identifier, it is necessary to use a somewhat more cumbersome syntax:
 
 ```python
 ts = results.time_series('Sacramento','runoff','catchment','mean',**{'Functional Unit':'Grazing Open'})
@@ -100,7 +100,7 @@ The above examples illustrate the two core reporting functions in Openwater.
 
 They afford considerable flexibility to identify and subset data, report in different ways and to aggregate data as required. However there are a number of limitations, which, at this point, are overcome by building higher level reporting functions to support a particular model or stye of model.
 
-As illustrated in the table example, above, there will often be the need to perform a unit conversion on the data returned by the reporting functions. In that example, there desire was to see a table of mean annual constituent load, in tons/year, by constituent and land use. This was achieved by summing across catchments and through time, to obtain 'total' loads, then dividing by the number of years in the simulation to create a mean average. However two additional conversions were necessary:
+As illustrated in the table example, above, there will often be the need to perform a unit conversion on the data returned by the reporting functions. In that example, the requirement was to see a table of mean annual constituent load, in tons/year, by constituent and land use. This was achieved by summing across catchments and through time, to obtain 'total' loads, then dividing by the number of years in the simulation to create a mean average. However two additional conversions were necessary:
 
 * `*1e-3` to convert the modelled kg to tons, and
 * `*86400` to convert the 'per second' model outputs to per day.
