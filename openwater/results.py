@@ -86,6 +86,24 @@ class OpenwaterResults(object):
         return model.name
     return model
 
+  def _retrieve_data(self,model,variable,**kwargs):
+    model = self._model_name(model)
+    data = self._retrieve_all(model,variable)
+    dim_names, dims, run_map = self._map_runs(model)
+    slices = [slice(None,None,None) for _ in dim_names]
+    for dim_name,dim_value in kwargs.items():
+      if not dim_name in dim_names:
+        map_grp = '/MODELS/%s/map'%model
+        fixed_value = self.model[map_grp].attrs.get(dim_name,None)
+        if fixed_value != dim_value:
+            raise Exception('Invalid dimension: %s=%s'%(dim_name,dim_value))
+        continue
+
+      dim_num = dim_names.index(dim_name)
+      dim_idx = dims[dim_name].index(dim_value)
+      slices[dim_num] = dim_idx
+    return dim_names, dims, run_map, slices, data
+
   def time_series(self,model,variable:str,columns:str,aggregator=None,**kwargs) -> pd.DataFrame:
     '''
     Return a table (DataFrame) of time series results from the model.
@@ -102,23 +120,8 @@ class OpenwaterResults(object):
 
     For dimensions (row, columns and kwargs), see dims_for_model
     '''
-    model = self._model_name(model)
-    data = self._retrieve_all(model,variable)
-    dim_names, dims, run_map = self._map_runs(model)
-
-    slices = [slice(None,None,None) for _ in dim_names]
-    for dim_name,dim_value in kwargs.items():
-      if not dim_name in dim_names:
-        map_grp = '/MODELS/%s/map'%model
-        fixed_value = self.model[map_grp].attrs.get(dim_name,None)
-        if fixed_value != dim_value:
-            raise Exception('Invalid dimension: %s=%s'%(dim_name,dim_value))
-        continue
-
-      dim_num = dim_names.index(dim_name)
-      dim_idx = dims[dim_name].index(dim_value)
-      slices[dim_num] = dim_idx
-    
+    dim_names, dims, run_map, slices, data = self._retrieve_data(model,variable,**kwargs)
+  
     report_dim = dim_names.index(columns)
 
     all_sequences = {}
@@ -160,17 +163,14 @@ class OpenwaterResults(object):
 
     For dimensions (row, columns and kwargs), see dims_for_model
     '''
-    model = self._model_name(model)
-    data = self._retrieve_all(model,variable)
-    dim_names, dims, run_map = self._map_runs(model)
-    slices = [slice(None,None,None) for _ in dim_names]
-
+    dim_names, dims, run_map, slices, data = self._retrieve_data(model,variable,**kwargs)
     data = temporal_agg_fns[temporal_aggregator](data)
-    column_names = dims[columns]
-    row_names = dims[rows]
 
     col_dim = dim_names.index(columns)
     row_dim = dim_names.index(rows)
+
+    column_names = dims[columns][:run_map.shape[col_dim]]
+    row_names = dims[rows][:run_map.shape[row_dim]]
 
     table_data = {}
     for i,col_name in enumerate(column_names):
