@@ -162,5 +162,13 @@ class TestOWSim(unittest.TestCase):
         for i in streamflow.columns:
             check_streamflow(i)
 
+        tbl = res.table('RunoffCoefficient','runoff','catchment','lu','sum')
+        rain_sum = sum(base_rain)
+        for c in runoff.columns:
+            for lu in range(N_LANDUSES):
+                sum_c_lu_runoff = tbl.loc[c,lu]
+                offset = N_TIMESTEPS*(c*CATCHMENT_SCALE + lu*LU_SCALE)
+                self.assertEqual(rain_sum+offset,sum_c_lu_runoff)
+
 if __name__ == '__main__':
     unittest.main()
