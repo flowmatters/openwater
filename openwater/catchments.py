@@ -16,6 +16,10 @@ DOWNSTREAM_LOAD_FLUX='load_downstream'
 UPSTREAM_FLOW_FLUX='flow_upstream'
 UPSTREAM_LOAD_FLUX='load_upstream'
 
+RUNOFF_VARIABLES = {
+  'Sacramento':['runoff','surfaceRunoff','baseflow']
+}
+
 # Need:
 # * Routines for delineation
 # * 
@@ -78,9 +82,10 @@ class SemiLumpedCatchment(object):
       quickflow_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Quickflow',**kwargs)
       baseflow_scale_node = template.add_node(n.DepthToRate,process='ArealScale',cgu=cgu,component='Baseflow',**kwargs)
 
-      template.add_link(OWLink(runoff_node,'runoff',runoff_scale_node,'input'))
-      template.add_link(OWLink(runoff_node,'quickflow',quickflow_scale_node,'input'))
-      template.add_link(OWLink(runoff_node,'baseflow',baseflow_scale_node,'input'))
+      runoff_var, quickflow_var, slowflow_var = RUNOFF_VARIABLES[runoff_model.name]
+      template.add_link(OWLink(runoff_node,runoff_var,runoff_scale_node,'input'))
+      template.add_link(OWLink(runoff_node,quickflow_var,quickflow_scale_node,'input'))
+      template.add_link(OWLink(runoff_node,slowflow_var,baseflow_scale_node,'input'))
 
       if routing_node.has_input('lateral'):
         catchment_inflow_flux = 'lateral'

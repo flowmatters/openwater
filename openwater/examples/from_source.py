@@ -64,6 +64,7 @@ def init_lookup():
     'EmcDwcCGModel':node_types.EmcDwc,
     'AWBM':node_types.RunoffCoefficient,
     'SimHydCs':node_types.Simhyd,
+    'Sacramento':node_types.Sacramento,
     'MusicRR':node_types.Surm,
     'NullRainfallModel':None,
     'StraightThroughRouting':node_types.Lag,
@@ -510,6 +511,8 @@ class FileBasedModelConfigurationProvider(object):
         return network_veneer
 
     def _load_parameters(self,fn_prefix,model_table):
+        if model_table is None or ('model' not in model_table.columns):
+          return {}
         models = set(model_table.model)
         return {m:self._load_csv(f'{fn_prefix}{m}') for m in models}
 
@@ -626,6 +629,7 @@ class SourceOpenwaterModelBuilder(object):
         catchment_template = self.build_catchment_template()
         net = self.provider.network()
         model = build_catchment_graph(catchment_template,net)
+        model.time_period=self.provider.time_period
         print('Got graph, configuring parameters')
 
         p = Parameteriser()
