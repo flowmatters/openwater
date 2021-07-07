@@ -955,9 +955,13 @@ class ModelFile(object):
         desc = getattr(node_types,model).description
         return create_indexed_parameter_table(desc,raw)
 
+    def close(self):
+        self._h5f.close()
+        self._h5f = None
+
     def write(self):
         try:
-            self._h5f.close()
+            self.close()
             import h5py
             self._h5f = h5py.File(self.filename,'r+')
             if self._parameteriser is None:
@@ -992,7 +996,7 @@ class ModelFile(object):
 
                 self._parameteriser.parameterise(model_meta,model_grp,instances,dim_map,node_dict,nodes_df)
         finally:
-            self._h5f.close()
+            self.close()
             self._h5f = h5py.File(self.filename,'r')
 
     def run(self,time_period,results_fn=None,**kwargs):
