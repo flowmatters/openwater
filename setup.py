@@ -49,6 +49,6 @@ setup(
             'pandas'
         ],
         extras_require={
-            'test': ['nose'],
+            'test': ['pytest'],
         },
 )

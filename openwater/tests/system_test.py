@@ -1,4 +1,5 @@
 import unittest
+import pytest
 import json
 import os
 import io
@@ -94,6 +95,7 @@ class ScaledTimeSeriesParameteriser(object):
             i += 1
 
 class TestOWSim(unittest.TestCase):
+    @pytest.mark.skip()
     def test_split(self):
         clean(MODEL_FN)
         clean(RESULTS_FN)
