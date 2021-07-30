@@ -479,6 +479,7 @@ class FileBasedModelConfigurationProvider(object):
         data = pd.read_csv(fn, index_col=0, parse_dates=True)
         if 'NetworkElement' in data.columns:
             data['Catchment'] = data['NetworkElement'].str.replace(EXPECTED_LINK_PREFIX,'',case=False)
+            data['link_name'] = data['NetworkElement']
 
         return data
 
