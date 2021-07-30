@@ -207,6 +207,9 @@ class ParameterTableAssignment(object):
         # print('nodes_df',len(nodes_df),nodes_df.columns)
         # print('df',len(self.df),self.df.columns)
         join_keys = set(dims.keys()).intersection(set(self.df.columns))
+        if not len(join_keys):
+            raise Exception(f'Table has no columns matching model dimensions. Dims: {dims.keys()}. Columns: {self.df.columns}')
+
         # print('join_keys',join_keys)
         joined = pd.merge(nodes_df,self.df,how='inner',on=list(join_keys))
         # print('joined',len(joined),joined.columns)
