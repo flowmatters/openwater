@@ -184,54 +184,97 @@ def filter_nodes(nodes):
         nodes = nodes[~nodes.icon.str.contains(ignore)]
     return nodes
 
-def make_node_linkages(row,nodes):
-    linkages = []
-    from_c = row.from_name
-    to_c = row.to_name
-    direct_link_catchments = not pd.isna(row.to_node) #not(pd.isna(from_c) or pd.isna(to_c))
+def _catchment_or_link(c,l):
+    if pd.isna(c):
+        if pd.isna(l):
+            return None
 
-    def catchment_or_link(c,l):
-        if pd.isna(c):
-            return {
-                'link_name':l
-            }
         return {
-            'catchment':c
+            'link_name':l
+        }
+    return {
+        'catchment':c
+    }
+
+def make_node_linkages(rows,nodes):
+    assert len(set(rows.from_node))==1
+
+    the_node = {
+        'node_name':nodes[nodes.id==rows.from_node.iloc[0]].name.iloc[0]
+    }
+
+    linkages = []
+    to_linkages = set()
+    from_linkages = set()
+
+    def unmake_link(c,l):
+        the_link = _catchment_or_link(c,l)
+        if the_link is None:
+            return None
+        return (list(the_link.keys())[0],list(the_link.values())[0])
+    def remake_link(lnk):
+        return {
+            lnk[0]:lnk[1]
         }
 
-    std_source = catchment_or_link(from_c,row.link_name)
-    std_dest = catchment_or_link(to_c,row.to_link_name)
+    for _,row in rows.iterrows():
+        to_linkages = to_linkages.union({unmake_link(row.from_name,row.link_name)})
+        from_linkages = from_linkages.union({unmake_link(row.to_name,row.to_link_name)})
 
-    link_from_node = None
-    if nodes.id.isin([row.from_node]).any() or nodes.id.isin([row.to_node]).any():
-        if pd.isna(row.to_node):
-            relevant_node = row.from_node
-        else:
-            relevant_node = row.to_node
+    to_linkages = to_linkages - {None}
+    for to_link in to_linkages:
+        linkages.append((remake_link(to_link),the_node))
 
-        node_details = nodes[nodes.id==relevant_node]
-        node_name = node_details.name.iloc[0]
-        node_linkage = {
-            'node_name':node_name
-        }
-        linkages.append((
-            node_linkage,
-            std_dest
-        ))
-
-        if node_details.accepts_inflow.iloc[0]:
-            direct_link_catchments = False
-            linkages.append((
-                std_source,
-                node_linkage
-            ))
-
-    if direct_link_catchments:
-        linkages.append((
-          std_source,
-          std_dest
-        ))
+    from_linkages = from_linkages - {None}
+    for from_link in from_linkages:
+        linkages.append((the_node,remake_link(from_link)))
     return linkages
+
+    # from_c = row.from_name
+    # to_c = row.to_name
+    # direct_link_catchments = not pd.isna(row.to_node) #not(pd.isna(from_c) or pd.isna(to_c))
+
+    # std_source = _catchment_or_link(from_c,row.link_name)
+    # std_dest = _catchment_or_link(to_c,row.to_link_name)
+
+    # link_from_node = None
+    # if (nodes is not None) and (nodes.id.isin([row.from_node]).any() or nodes.id.isin([row.to_node]).any()):
+    #     if pd.isna(row.to_node):
+    #         relevant_node = row.from_node
+    #     else:
+    #         relevant_node = row.to_node
+
+    #     node_details = nodes[nodes.id==relevant_node]
+    #     node_name = node_details.name.iloc[0]
+    #     node_linkage = {
+    #         'node_name':node_name
+    #     }
+    #     linkages.append((
+    #         node_linkage,
+    #         std_dest
+    #     ))
+
+    #     if node_details.accepts_inflow.iloc[0]:
+    #         direct_link_catchments = False
+    #         linkages.append((
+    #             std_source,
+    #             node_linkage
+    #         ))
+
+    # if direct_link_catchments:
+    #     linkages.append((
+    #       std_source,
+    #       std_dest
+    #     ))
+    # return linkages
+
+def make_confluence(row):
+    return [
+        (
+            _catchment_or_link(row.from_name,row.link_name),
+            _catchment_or_link(row.to_name,row.to_link_name)
+        )
+    ]
 
 def make_network_topology(catchments,nodes,links):
   links['link_name'] = links['name']
@@ -247,12 +290,19 @@ def make_network_topology(catchments,nodes,links):
                         c2l[['to_name','to_link_name','from_node']],
                         left_on='to_node',right_on='from_node',how='right')
 
-  # node_connection_table = collapse_links(node_connection_table,nodes,links)
+  node_connection_table.from_node[~node_connection_table.from_node.isin(nodes.id)] = np.nan
+  node_connection_table.to_node[~node_connection_table.to_node.isin(nodes.id)] = np.nan
 
+  confluences = node_connection_table[~pd.isna(node_connection_table.from_name) & \
+                                      ~pd.isna(node_connection_table.to_name) & \
+                                      pd.isna(node_connection_table.from_node)]
   linkages = []
-  for ix, row in node_connection_table.iterrows():
-    node_linkages = make_node_linkages(row,nodes)
+  for joining_node in nodes.id:
+    node_linkages = make_node_linkages(node_connection_table[node_connection_table.from_node==joining_node],nodes)
     linkages += node_linkages
+
+  for _, row in confluences.iterrows():
+    linkages += make_confluence(row)
 
   return linkages
 
