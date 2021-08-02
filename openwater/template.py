@@ -957,6 +957,60 @@ class ModelFile(object):
         desc = getattr(node_types,model).description
         return create_indexed_parameter_table(desc,raw)
 
+    def nodes_matching(self,model,**tags):
+        if hasattr(model,'name'):
+            model = model.name
+        nodes = pd.DataFrame(self._map_model_dims(model))
+        for tag,tag_val in tags.items():
+            nodes = nodes[nodes[tag]==tag_val]
+        return nodes
+
+    def link_table(self):
+        linkages = pd.DataFrame(self._h5f['LINKS'][...],columns=LINK_TABLE_COLUMNS)
+        all_models = np.array([m.decode() for m in list(self._h5f['META']['models'][...])])
+
+        descriptions = {mod:getattr(node_types,mod).description for mod in all_models}
+
+        linkages.src_model = all_models[linkages.src_model]
+        linkages.dest_model = all_models[linkages.dest_model]
+
+        linkages.src_var = [descriptions[m]['Outputs'][v] for m,v in zip(linkages.src_model,linkages.src_var)]
+        linkages.dest_var = [descriptions[m]['Inputs'][v] for m,v in zip(linkages.dest_model,linkages.dest_var)]
+        return linkages
+
+    def links_between(self,dest_mod=None,dest_var=None,src_mod=None,src_var=None,src_tags={},dest_tags={},annotate=True):
+        linkages = self.link_table()
+
+        if dest_mod:
+            linkages = linkages[linkages.dest_model==dest_mod]
+            nodes = self.nodes_matching(dest_mod,**dest_tags)
+            linkages = linkages[linkages.dest_node.isin(nodes._run_idx)]
+
+        if dest_var:
+            linkages = linkages[linkages.dest_var==dest_var]
+
+        if src_mod:
+            linkages = linkages[linkages.src_model==src_mod]
+            nodes = self.nodes_matching(src_mod,**src_tags)
+            linkages = linkages[linkages.src_node.isin(nodes._run_idx)]
+
+        if src_var:
+            linkages = linkages[linkages.src_var==src_var]
+
+        if annotate:
+            model_maps = {m:pd.DataFrame(self._map_model_dims(m)) for m in set(linkages.src_model).union(linkages.dest_model)}
+
+            def annotate_tbl(prefix):
+                tag_names = set([c for m in set(linkages[f'{prefix}_model']) for c in model_maps[m].columns])-{'_run_idx'}
+                for tag_name in tag_names:
+                    col = f'{prefix}_{tag_name}'
+                    rows = [model_maps[m][model_maps[m]._run_idx==n] for m,n in zip(linkages[f'{prefix}_model'],linkages[f'{prefix}_node'])]
+                    linkages[col] = [row[tag_name].iloc[0] if tag_name in row else '-' for row in rows]
+
+            annotate_tbl('src')
+            annotate_tbl('dest')
+        return linkages
+
     def close(self):
         self._h5f.close()
         self._h5f = None
