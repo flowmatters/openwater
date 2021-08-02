@@ -294,6 +294,8 @@ def template_to_graph(g,tpl,**tags) -> nx.DiGraph:
       key = (str(nodes[str(l.from_node)]),str(nodes[str(l.to_node)]))
       if key in g.edges:
           existing = g.edges[key]
+          if (l.from_output in existing['src']) and (l.to_input in existing['dest']):
+              raise Exception(f'Duplicate link along {key}, between {l.from_output} and {l.to_input}')
           existing['src'].append(l.from_output)
           existing['dest'].append(l.to_input)
           continue
