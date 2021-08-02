@@ -289,7 +289,7 @@ def template_to_graph(g,tpl,**tags) -> nx.DiGraph:
   for n in nw.nodes:
       g.add_node(str(n),**n.tags)
       nodes[str(n)] = n
-  
+
   for l in nw.links:
       key = (str(nodes[str(l.from_node)]),str(nodes[str(l.to_node)]))
       if key in g.edges:
@@ -328,10 +328,10 @@ def group_run_order(g):
         ancestors_by_node[n] = ancestors
 
         mt = model_type(n)
-    
+
         if not mt in by_node_type_gen:
             by_node_type_gen[mt] = {}
-    
+
         n_ancestors = len(ancestors)
         if not n_ancestors in by_node_type_gen[mt]:
             by_node_type_gen[mt][n_ancestors] = []
@@ -482,7 +482,7 @@ def push_back_ss(g,stages):
   init_timer('push_back_ss')
   to_remove = {n:[] for n in range(len(stages))}
   to_add = {n:[] for n in range(len(stages))}
-  
+
 #   first_small_stage = find_first_small_stage(stages)
 
   visited = {}
@@ -573,12 +573,12 @@ def match_model_name(node_name):
 def sort_nodes(nodes):
     '''
     Sort a group of nodes by relevant criteria
-    
+
     (Currently just name - but ultimately by tags in some way!)
     '''
     return sorted(nodes)
 
-   
+
 class ModelGraph(object):
     def __init__(self,graph,initialise=True,time_period=None):
         self._graph = graph
@@ -684,7 +684,7 @@ class ModelGraph(object):
 
     def _flux_number(self,node_name,flux_type,flux_name):
         node = self._graph.nodes[node_name]
-        
+
         model_type = node[TAG_MODEL]
         desc = getattr(node_types,model_type).description
         flux_type = flux_type.capitalize()
@@ -715,7 +715,7 @@ class ModelGraph(object):
     def _map_process(self,node_set):
         '''
         For a given model (eg 'GR4J'), organise all model runs
-        by the parameterisation dimensions (eg catchment x hru) and assign indices    
+        by the parameterisation dimensions (eg catchment x hru) and assign indices
         '''
 
         nodes = self._graph.nodes
@@ -938,7 +938,7 @@ class ModelFile(object):
         df = df.set_index(list(dim_cols))
 
         param_df = pd.DataFrame(vals).transpose().reindex(index=df['_run_idx'])
-        
+
         result = param_df.set_index(df.index)
         for k,v in tags.items():
             result = result[result[k]==v]
