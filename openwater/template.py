@@ -993,6 +993,9 @@ class ModelFile(object):
         return nodes
 
     def link_table(self):
+        """
+        Return the table of links between model nodes as a Data Frame.
+        """
         linkages = pd.DataFrame(self._h5f['LINKS'][...],columns=LINK_TABLE_COLUMNS)
         all_models = np.array([m.decode() for m in list(self._h5f['META']['models'][...])])
 
@@ -1006,6 +1009,30 @@ class ModelFile(object):
         return linkages
 
     def links_between(self,dest_mod=None,dest_var=None,src_mod=None,src_var=None,src_tags={},dest_tags={},annotate=True):
+        """
+        Identify the links between particular model graph nodes.
+
+        Optionally (and by default), label src node and destination nodes by tags
+
+        All parameters are optional. By default returns all links, with all tags.
+
+        Parameters
+        ----------
+        dest_mod : string
+          Destination model type (eg EmcDwc) and only show links to this model type
+        dest_var : string
+          Destination variable (eg inflow) and only show links to this variable
+        src_mod: string
+          Source model type (eg EmcDwc) and only show links from this model type
+        src_var: string
+          Source variable (eg outflow) and only show links from this variable
+        src_tags: dict
+          Only show links from graph nodes with all these tags
+        dest_tags: dict
+          Only show links to graph nodes with all these tags
+        annotate: boolean
+          Add source node and destination node tags as columns to the data frame
+        """
         linkages = self.link_table()
 
         if dest_mod:
