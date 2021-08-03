@@ -281,7 +281,32 @@ class OWLink(object):
 
 #   def add_node(self,name,)
 
-def template_to_graph(g,tpl,**tags) -> nx.DiGraph:
+def template_to_graph(g:nx.DiGraph,tpl:OWTemplate,allow_duplicates=False,**tags) -> nx.DiGraph:
+  """
+  Add all the nodes and links in an Openwater Template to a graph
+
+  Parameters
+  ----------
+  g: nx.DiGraph
+    an existing graph object. If None, a new graph object will be created
+  tpl: OWTemplate
+    Openwater Template to add to the graph
+  allow_duplicates:
+    Whether to allow duplicate links (ie between the same two nodes and variables) or whether to throw an exception
+    Defaults to False (ie raise exception on duplicate)
+  tags:
+    Additional tags to assign to all nodes in the template when adding to the graph
+
+  Returns
+  -------
+  nx.DiGraph
+    The graph object passed in as g, or the new graph object created
+
+  Raises
+  ------
+  Exception
+    when duplicate link encountered (unless allow_duplicates=True)
+  """
   if not g:
     g = nx.DiGraph()
   nodes = {}
@@ -294,7 +319,9 @@ def template_to_graph(g,tpl,**tags) -> nx.DiGraph:
       key = (str(nodes[str(l.from_node)]),str(nodes[str(l.to_node)]))
       if key in g.edges:
           existing = g.edges[key]
-          if (l.from_output in existing['src']) and (l.to_input in existing['dest']):
+          if not allow_duplicates and \
+             (l.from_output in existing['src']) and \
+             (l.to_input in existing['dest']):
               raise Exception(f'Duplicate link along {key}, between {l.from_output} and {l.to_input}')
           existing['src'].append(l.from_output)
           existing['dest'].append(l.to_input)
