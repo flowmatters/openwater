@@ -97,13 +97,13 @@ def install_artifact(access_token,artifact=None,dest=None):
     url = artifact['archive_download_url']
 
     if dest is None:
-        dest = os.path.join(os.path.expanduser(DEST_RELATIVE),f"{artifact['updated_at']}-{artifact['sha']}")
+        dest = os.path.join(os.path.expanduser(DEST_RELATIVE),f"{artifact['updated_at'].replace(':','')}-{artifact['sha']}")
 
     if not os.path.exists(dest):
         os.makedirs(dest)
 
         req = urllib.request.Request(url)
-        req.add_header('Authorization', f'token {TOKEN}')
+        req.add_header('Authorization', f'token {access_token}')
         remotezip = urllib.request.urlopen(req)
         zipinmemory = io.BytesIO(remotezip.read())
         zip = zipfile.ZipFile(zipinmemory)
