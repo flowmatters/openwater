@@ -504,6 +504,14 @@ class FileBasedModelConfigurationProvider(object):
         self.climate_patterns = climate_patterns
         self.time_period = time_period
 
+        nw = self.network().as_dataframe()
+        catchments = nw[nw.feature_type=='catchment']
+        links = nw[nw.feature_type=='link']
+        lookup_df = pd.merge(catchments[['name','link']],links[['id','name']],
+                               left_on='link',right_on='id',how='inner').rename(
+                                   columns={'name_x':'catchment','link':'link_id','name_y':'link'})
+        self.catchment_link_lookup = dict(zip(lookup_df['link'],lookup_df['catchment']))
+
     def _find_files(self,pattern,ignoring=[]):
         files = [os.path.basename(fn) for fn in \
             glob(os.path.join(self.data_path,pattern))]
@@ -528,7 +536,9 @@ class FileBasedModelConfigurationProvider(object):
 
         data = pd.read_csv(fn, index_col=0, parse_dates=True)
         if 'NetworkElement' in data.columns:
-            data['Catchment'] = data['NetworkElement'].str.replace(EXPECTED_LINK_PREFIX,'',case=False)
+            # data['Catchment'] = data['NetworkElement'].str.replace(EXPECTED_LINK_PREFIX,'',case=False)
+            data['Catchment'] = data['NetworkElement'].map(self.catchment_link_lookup)
+            data['Catchment'].fillna(data['NetworkElement'],inplace=True)
             data['link_name'] = data['NetworkElement']
 
         return data
