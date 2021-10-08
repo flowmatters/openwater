@@ -421,7 +421,7 @@ def get_default_node_template(node_type,constituents,**kwargs):
     template = templating.OWTemplate(node_type)
 
     if node_type not in DEFAULT_NODE_TEMPLATES:
-        raise Exception(f'Unsupported node: {node_type} at {kwargs.get("node","unnamed node")}')
+        raise Exception(f'Unsupported node: {node_type} at {kwargs.get("node_name","unnamed node")}')
 
     DEFAULT_NODE_TEMPLATES[node_type](template,constituents,**kwargs)
     return template
