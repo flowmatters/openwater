@@ -20,11 +20,15 @@ from openwater.catchments import SemiLumpedCatchment, \
 import openwater.template as templating
 from openwater.template import OWLink
 from openwater.config import Parameteriser, ParameterTableAssignment, \
-    NestedParameteriser, DataframeInputs, UniformParameteriser
+    NestedParameteriser, DataframeInputs, UniformParameteriser, \
+    LoadArraysParameters
 from openwater.timing import init_timer, report_time, close_timer
 import json
 from functools import reduce
 from veneer.general import _extend_network
+
+PER_SECOND_TO_PER_DAY=86400
+PER_DAY_TO_PER_SECOND=1/PER_SECOND_TO_PER_DAY
 
 EXPECTED_LINK_PREFIX='link for catchment '
 
@@ -543,6 +547,10 @@ class FileBasedModelConfigurationProvider(object):
 
         return data
 
+    def _load_time_series_csv(self,f):
+        df = self._load_csv(f)
+        return df.reindex(self.time_period)
+
     def get_functional_unit_types(self):
         return self._load_json('fus')
 
@@ -680,6 +688,52 @@ class SourceOpenwaterModelBuilder(object):
 
         return res
 
+    def _storage_parameteriser(self):
+        p = NestedParameteriser()
+
+        storage_tables = merge_storage_tables(self.provider.data_path)
+        if storage_tables is None:
+            return p
+
+        # # FIX LVAS
+        # for k,tbl in storage_tables.items():
+        #     print('FIXING LVA FOR %s'%k)
+        #     tbl.rename(columns={
+        #         'areas':'volumes',
+        #         'volumes':'areas'
+        #     },inplace=True)
+
+        storage_parameters = LoadArraysParameters(storage_tables,'${node_name}','nLVA',model='Storage')
+        p.nested.append(storage_parameters)
+
+        demands_at_storages = self.provider._load_csv('Results/regulated_release_volume')
+        if demands_at_storages is not None:
+            demands_at_storages = demands_at_storages * PER_DAY_TO_PER_SECOND
+
+            storage_demand_inputs = DataframeInputs()
+            storage_demand_inputs.inputter(demands_at_storages, 'demand', '${node_name}',model='Storage')
+            p.nested.append(storage_demand_inputs)
+
+        static_storage_parameters = self.provider._load_csv('storage_params')
+        static_storage_parameters = static_storage_parameters.rename(columns={
+            'NetworkElement':'node_name',
+            'InitialStorage':'currentVolume'
+        })
+        p.nested.append(ParameterTableAssignment(static_storage_parameters,
+                                                 'Storage',
+                                                 dim_columns=['node_name'],
+                                                 complete=True))
+
+        storage_climate = self.provider._load_time_series_csv('storage_climate')
+        storage_climate = storage_climate.rename(columns=_rename_storage_variable)
+
+        storage_climate_inputs = DataframeInputs()
+        storage_climate_inputs.inputter(storage_climate,'rainfall','${node_name} Rainfall',model='Storage')
+        storage_climate_inputs.inputter(storage_climate,'pet','${node_name} Evaporation',model='Storage')
+        p.nested.append(storage_climate_inputs)
+
+        return p
+
     def build_ow(self,dest_fn):
         if os.path.exists(dest_fn):
             raise Exception('File exists')
@@ -695,6 +749,8 @@ class SourceOpenwaterModelBuilder(object):
 
         p = Parameteriser()
         p.append(self._fu_areas_parameteriser())
+
+        p.append(self._storage_parameteriser())
 
         print('Building parameters')
         runoff_parameters = build_parameter_lookups(self.provider.runoff_parameters())
@@ -730,7 +786,6 @@ class SourceOpenwaterModelBuilder(object):
           p.append(UniformParameteriser(dt_model,DeltaT=delta_t))
 
         p.append(UniformParameteriser('PassLoadIfFlow',scalingFactor=1.0))
-
         # Not needed
         # for model_type, inputs in climate_inputs.items():
         #     inputter = SourceTimeSeriesTranslator(inputs,model_type,v)
@@ -827,6 +882,12 @@ def storage_template_builder(constituent_model_map=None):
       template.add_link(OWLink(storage,'outflow',constituent_node,'outflow'))
 
   return build_storage_node_template
+
+def _rename_storage_variable(col):
+    SUFFIXES=['InMetresPerSecond']
+    for sfx in SUFFIXES:
+        col = col.replace(sfx,'')
+    return col
 
 DEFAULT_NODE_TEMPLATES={
     'Extraction':build_extraction_node_template,
