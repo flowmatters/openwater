@@ -654,14 +654,15 @@ class FileBasedModelConfigurationProvider(object):
 
 
 class SourceOpenwaterModelBuilder(object):
-    def __init__(self,source_provider):
+    def __init__(self,source_provider,ignore_fus=[]):
         self.provider = source_provider
+        self.ignore_fus=ignore_fus
 
     def build_catchment_template(self):
         catchment_template = SemiLumpedCatchment()
         catchment_template.climate_inputs = ['rainfall','pet']
         catchment_template.node_template = get_default_node_template
-        fus = set(self.provider.get_functional_unit_types())
+        fus = set(self.provider.get_functional_unit_types()) - set(self.ignore_fus)
         constituents = self.provider.get_constituents()
 
         catchment_template.hrus = fus
@@ -734,6 +735,20 @@ class SourceOpenwaterModelBuilder(object):
 
         return p
 
+    def remove_ignored_rows(self,param_df):
+        if 'Functional Unit' in param_df.columns:
+            print(len(param_df))
+            param_df = param_df[~param_df['Functional Unit'].isin(self.ignore_fus)]
+            print(len(param_df))
+            print()
+
+        return param_df
+
+    def build_parameter_lookups(self,params):
+        params = {k:self.remove_ignored_rows(df) for k,df in params.items()}
+        params = {k:df for k,df in params.items() if len(df)}
+        return build_parameter_lookups(params)
+
     def build_ow(self,dest_fn):
         if os.path.exists(dest_fn):
             raise Exception('File exists')
@@ -753,9 +768,9 @@ class SourceOpenwaterModelBuilder(object):
         p.append(self._storage_parameteriser())
 
         print('Building parameters')
-        runoff_parameters = build_parameter_lookups(self.provider.runoff_parameters())
-        cg_parameters = build_parameter_lookups(self.provider.generation_parameters())
-        routing_params = build_parameter_lookups(self.provider.routing_parameters())
+        runoff_parameters = self.build_parameter_lookups(self.provider.runoff_parameters())
+        cg_parameters = self.build_parameter_lookups(self.provider.generation_parameters())
+        routing_params = self.build_parameter_lookups(self.provider.routing_parameters())
         for model_type, parameters in {**runoff_parameters,**cg_parameters,**routing_params}.items():
             print('Building parameteriser for %s'%model_type)
             parameteriser = ParameterTableAssignment(parameters,model_type)
