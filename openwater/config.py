@@ -116,7 +116,7 @@ class DataframeInputs(object):
                     applied += 1
                     grp['inputs'][run_idx,input_num,:] = data
 
-            if i%100 == 0:
+            if (i%100 == 0) and (applied>0):
                 logger.info('Processing %s. Applied %d inputs',node_name,applied)
             i += 1
 
