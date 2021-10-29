@@ -1,7 +1,7 @@
 import h5py
 from .template import ModelFile
 from openwater.results import OpenwaterSplitResults
-from collections.abc import Sequence
+from typing import Sequence
 
 def create_or_reuse_model_group(fn,existing):
   if fn is None:
