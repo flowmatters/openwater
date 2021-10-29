@@ -1,7 +1,7 @@
 import h5py
 from .template import ModelFile
 from openwater.results import OpenwaterSplitResults
-from typing import Sequence
+from typing import Sequence, Tuple
 
 def create_or_reuse_model_group(fn,existing):
   if fn is None:
@@ -15,7 +15,7 @@ def create_or_reuse_model_group(fn,existing):
 
   return grp
 
-def split_time_series(models_group: h5py.Group,splits:int, windows:Sequence[int]) -> Sequence[(int,int)]:
+def split_time_series(models_group: h5py.Group,splits:int, windows:Sequence[int]) -> Sequence[Tuple[int,int]]:
   ts_length = -1
   for model_name in models_group.keys():
     model_grp = models_group[model_name]
