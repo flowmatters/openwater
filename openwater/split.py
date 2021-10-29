@@ -87,8 +87,12 @@ def split_model(orig_model: str,
   for model, grp in input_f['MODELS'].items():
     grp.copy('batches',structure_models[model])
     grp.copy('map',structure_models[model])
-    grp.copy('parameters',params_models[model])
-    grp.copy('states',init_states_models[model])
+
+    if 'parameters' in grp:
+      grp.copy('parameters',params_models[model])
+
+    if 'states' in grp:
+      grp.copy('states',init_states_models[model])
 
     if 'inputs' not in grp:
       print(f'No inputs recorded for {model}. Skipping')
