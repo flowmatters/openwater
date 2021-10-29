@@ -921,7 +921,11 @@ class ModelFile(object):
         self._links = pd.DataFrame(self._h5f['LINKS'][...],columns=LINK_TABLE_COLUMNS)
         self._models = self._h5f['META']['models'][...]
         if 'timeperiod' in self._h5f['META']:
-          self.time_period = pd.DatetimeIndex([pd.Timestamp.fromisoformat(d.decode()) for d in self._h5f['META']['timeperiod'][...]])
+          timesteps = [d for d in self._h5f['META']['timeperiod'][...]]
+          if isinstance(d[0],bytes):
+            timesteps = [d.decode() for d in timesteps]
+
+          self.time_period = pd.DatetimeIndex([pd.Timestamp.fromisoformat(d) for d in timesteps])
         self._parameteriser = None
 
     def _matches(self,model,**tags):
