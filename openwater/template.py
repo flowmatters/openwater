@@ -1071,7 +1071,7 @@ class ModelFile(object):
         self._h5f.close()
         self._h5f = None
 
-    def write(self):
+    def write(self,clear_inputs=False):
         try:
             self.close()
             import h5py
@@ -1105,6 +1105,11 @@ class ModelFile(object):
                 nodes_df = pd.DataFrame({'node':nodes})
                 for d, vals in dim_map.items():
                     nodes_df[d] = vals
+
+                if clear_inputs and 'inputs' in model_grp:
+                    del model_grp['inputs']
+
+                # initialise parameters and states if they don't exist!
 
                 self._parameteriser.parameterise(model_meta,model_grp,instances,dim_map,node_dict,nodes_df)
         finally:
