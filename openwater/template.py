@@ -15,6 +15,8 @@ from itertools import chain
 from .array_params import get_parameter_locations
 from .nodes import create_indexed_parameter_table
 from .file import _tabulate_model_scalars_from_file
+import logging
+logger = logging.getLogger(__name__)
 
 # Non blocking IO solution from http://stackoverflow.com/a/4896288
 ON_POSIX = 'posix' in sys.builtin_module_names
@@ -1142,6 +1144,7 @@ def _run(time_period,model_fn=None,results_fn=None,**kwargs):
     cmd_line.append(results_fn)
     # "%s %s %s %s"%(_exe_path('sim'),flags,model_fn,results_fn)
 
+    logger.debug('Running with command line: %s',cmd_line)
     proc = Popen(cmd_line,stdout=PIPE,stderr=PIPE,bufsize=1, close_fds=ON_POSIX)
     std_out_queue,std_out_thread = configure_non_blocking_io(proc,'stdout')
     std_err_queue,std_err_thread = configure_non_blocking_io(proc,'stderr')

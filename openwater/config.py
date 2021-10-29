@@ -4,6 +4,8 @@ import pandas as pd
 import string
 from .array_params import get_parameter_locations, param_starts
 from .nodes import create_indexed_parameter_table
+import logging
+logger = logging.getLogger(__name__)
 
 def _models_match(configured,trial):
     if configured is None:
@@ -88,13 +90,12 @@ class DataframeInputs(object):
         if not len(set(inputs).intersection(set(self._inputs.keys()))):
             return
 
-        print('==== Called for %s ===='%model_desc.name)
-        print(inputs)
-        print(grp)
-        print(dims)
-        print(list(nodes.items())[0])
-        print(instances.shape)
-        print()
+        logger.info('==== Called for %s ===='%model_desc.name)
+        logger.debug(inputs)
+        logger.debug(grp)
+        # print('Dims',dims)
+        logger.debug(list(nodes.items())[0])
+        logger.debug(instances.shape)
         i = 0
         applied = 0
         for node_name,node in nodes.items():
@@ -116,7 +117,7 @@ class DataframeInputs(object):
                     grp['inputs'][run_idx,input_num,:] = data
 
             if i%100 == 0:
-                print('Processing %s. Applied %d inputs'%(node_name,applied))
+                logger.info('Processing %s. Applied %d inputs',node_name,applied)
             i += 1
 
 class SingleTimeseriesInput(object):
