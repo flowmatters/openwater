@@ -922,7 +922,7 @@ class ModelFile(object):
         self._models = self._h5f['META']['models'][...]
         if 'timeperiod' in self._h5f['META']:
           timesteps = [d for d in self._h5f['META']['timeperiod'][...]]
-          if isinstance(d[0],bytes):
+          if isinstance(timesteps[0],bytes):
             timesteps = [d.decode() for d in timesteps]
 
           self.time_period = pd.DatetimeIndex([pd.Timestamp.fromisoformat(d) for d in timesteps])
