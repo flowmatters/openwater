@@ -99,9 +99,9 @@ def split_model(orig_model: str,
       continue
 
     print(f'Copying inputs for {model}')
-    for ix, ((start_idx,end_ix),ts_dest_grp) in enumerate(zip(input_windows,inputs_models)):
+    for ix, ((start_idx,end_idx),ts_dest_grp) in enumerate(zip(input_windows,inputs_models)):
       print(f'Input window {ix}: [{start_idx}:{end_idx}]')
-      ts_grp[model]['inputs'] = grp['inputs'][:,:,start_idx:end_idx]
+      ts_dest_grp[model]['inputs'] = grp['inputs'][:,:,start_idx:end_idx]
 
 
 def run_split_model(structure,params=None,init_states=None,inputs=None,dests=None,final_states=None,**kwargs):
