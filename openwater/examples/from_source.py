@@ -225,7 +225,7 @@ def make_node_linkages(rows,nodes):
         }
 
     for _,row in rows.iterrows():
-        to_linkages = to_linkages.union({unmake_link(row.from_name,row.link_name)})
+        to_linkages = to_linkages.union({unmake_link(row.from_name,row.from_link_name)})
         from_linkages = from_linkages.union({unmake_link(row.to_name,row.to_link_name)})
 
     to_linkages = to_linkages - {None}
@@ -278,30 +278,34 @@ def make_node_linkages(rows,nodes):
 def make_confluence(row):
     return [
         (
-            _catchment_or_link(row.from_name,row.link_name),
+            _catchment_or_link(row.from_name,row.from_link_name),
             _catchment_or_link(row.to_name,row.to_link_name)
         )
     ]
 
 def make_network_topology(catchments,nodes,links):
   links['link_name'] = links['name']
-  c2l = pd.merge(catchments[['name','link']],
+  catchments['catchment_name'] = catchments['name']
+  c2l = pd.merge(catchments[['catchment_name','link']],
                  links[['id','link_name','from_node','to_node']],
                  left_on='link',right_on='id',how='right')
-  c2l['from_name'] = c2l['name']
-  c2l['to_name'] = c2l['name']
+  assert len(c2l) == len(links)
+  c2l['from_name'] = c2l['catchment_name']
+  c2l['to_name'] = c2l['catchment_name']
+
+  c2l['from_link_name'] = c2l['link_name']
   c2l['to_link_name'] = c2l['link_name']
 
   c2l['link'] = c2l['id']
-  node_connection_table = pd.merge(c2l[['from_name','link','link_name','to_node']],
+  node_connection_table = pd.merge(c2l[['from_name','link','from_link_name','to_node']],
                         c2l[['to_name','to_link_name','from_node']],
                         left_on='to_node',right_on='from_node',how='right')
 
   node_connection_table.from_node[~node_connection_table.from_node.isin(nodes.id)] = np.nan
   node_connection_table.to_node[~node_connection_table.to_node.isin(nodes.id)] = np.nan
 
-  confluences = node_connection_table[~pd.isna(node_connection_table.from_name) & \
-                                      ~pd.isna(node_connection_table.to_name) & \
+  confluences = node_connection_table[~pd.isna(node_connection_table.from_link_name) & \
+                                      ~pd.isna(node_connection_table.to_link_name) & \
                                       pd.isna(node_connection_table.from_node)]
   linkages = []
   for joining_node in nodes.id:
