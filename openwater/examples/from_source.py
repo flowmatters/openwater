@@ -26,9 +26,8 @@ from openwater.timing import init_timer, report_time, close_timer
 import json
 from functools import reduce
 from veneer.general import _extend_network
+from .const import *
 
-PER_SECOND_TO_PER_DAY=86400
-PER_DAY_TO_PER_SECOND=1/PER_SECOND_TO_PER_DAY
 
 EXPECTED_LINK_PREFIX='link for catchment '
 
@@ -52,6 +51,10 @@ MODEL_PARAMETER_TRANSLATIONS = {
 }
 
 LOOKUP_COLUMN_ORDER=['Constituent','Functional Unit','Catchment','Constituent Source']
+
+DEFAULT_AREAL_MODELS = [
+    ('DepthToRate','area')
+]
 
 def _create_surm_initial_states(raw_params):
   raw_params['SoilMoistureStore'] = raw_params['initialSoilMoistureFraction'] * raw_params['smax']
@@ -469,6 +472,119 @@ def build_input_lookups(target,v):
 
     return result,length
 
+def fu_areas_parameteriser(fu_areas,area_models=DEFAULT_AREAL_MODELS):
+    res = NestedParameteriser()
+
+    for model,prop in area_models:
+        res.nested.append(ParameterTableAssignment(fu_areas,model,prop,'cgu','catchment',skip_na=True))
+
+    return res
+
+def storage_parameteriser(builder):
+    p = NestedParameteriser()
+
+    storage_tables = merge_storage_tables(builder.data_path)
+    if storage_tables is None:
+        return p
+
+    storage_parameters = LoadArraysParameters(storage_tables,'${node_name}','nLVA',model='Storage')
+    p.nested.append(storage_parameters)
+
+    demands_at_storages = builder._load_csv('Results/regulated_release_volume')
+    if demands_at_storages is not None:
+        demands_at_storages = demands_at_storages * PER_DAY_TO_PER_SECOND
+
+        storage_demand_inputs = DataframeInputs()
+        storage_demand_inputs.inputter(demands_at_storages, 'demand', '${node_name}',model='Storage')
+        p.nested.append(storage_demand_inputs)
+
+    static_storage_parameters = builder._load_csv('storage_params')
+    static_storage_parameters = static_storage_parameters.rename(columns={
+        'NetworkElement':'node_name',
+        'InitialStorage':'currentVolume'
+    })
+    p.nested.append(ParameterTableAssignment(static_storage_parameters,
+                                                'Storage',
+                                                dim_columns=['node_name'],
+                                                complete=True))
+
+    storage_climate = builder._load_time_series_csv('storage_climate')
+    storage_climate = storage_climate.rename(columns=_rename_storage_variable)
+
+    storage_climate_inputs = DataframeInputs()
+    storage_climate_inputs.inputter(storage_climate,'rainfall','${node_name} Rainfall',model='Storage')
+    storage_climate_inputs.inputter(storage_climate,'pet','${node_name} Evaporation',model='Storage')
+    p.nested.append(storage_climate_inputs)
+
+    storage_fsl_inputs = DataframeInputs()
+    storage_target_cap = pd.DataFrame()
+
+    fsvs = dict(zip(static_storage_parameters['node_name'],static_storage_parameters['FullSupplyVolume']))
+    # fsls = dict(zip(static_storage_parameters['node_name'],static_storage_parameters['FullSupplyLevel']))
+
+    for k,tbl in storage_tables.items():
+        cap = tbl['volumes'].max() - fsvs[k]# m3
+        storage_target_cap[k] = np.ones((len(storage_climate,)))*cap
+    assert len(storage_target_cap)==len(storage_climate)
+    storage_fsl_inputs.inputter(storage_target_cap,'targetMinimumCapacity','${node_name}',model='Storage')
+
+    p.nested.append(storage_fsl_inputs)
+
+    return p
+
+def demand_parameteriser(builder):
+    nodes = builder.network['features'].find_by_feature_type('node')
+    water_users = nodes.find_by_icon('/resources/WaterUserNodeModel')
+    demands = pd.DataFrame()
+    for wu in water_users:
+        wu_name = wu['properties']['name']
+        us_links = builder.network.upstream_links(wu['properties']['id'])
+        assert len(us_links)==1
+        extraction_node_id = us_links[0]['properties']['from_node']
+        extraction_node = nodes.find_by_id(extraction_node_id)[0]
+        extraction_node_name = extraction_node['properties']['name']
+        demand = builder._load_csv(f'timeseries-demand-{wu_name}')
+
+        if demand is None:
+            demand = np.array(builder._load_csv(f'monthly-pattern-demand-{wu_name}').volume)
+            month_ts = builder.time_period.month-1
+            demand = demand[month_ts]
+            demand = pd.DataFrame({'TSO':demand},index=builder.time_period)
+        else:
+            demand = demand.reindex(builder.time_period)
+
+        print(wu_name,extraction_node_name)
+        print(demand.columns)
+        demands[extraction_node_name] = demand['TSO']
+
+    demands = demands
+    i = DataframeInputs()
+    i.inputter(demands, 'demand', '${node_name}', model='PartitionDemand')
+
+    return i
+
+def inflow_parameteriser(builder):
+    p = NestedParameteriser()
+    print('Configuring inflow timeseries')
+    inflows = builder.inflows(builder.time_period)
+    if inflows is not None:
+        inflow_inputs = DataframeInputs()
+        p.append(inflow_inputs)
+
+        inflow_inputs.inputter(inflows,'input','${node_name}',model=n.Input)
+
+        inflow_loads = builder.inflow_loads(inflows)
+        inflow_inputs.inputter(inflow_loads,'inputLoad','${node_name}:${constituent}',model='PassLoadIfFlow')
+    return p
+
+def node_model_parameteriser(builder):
+    p = NestedParameteriser()
+
+    p.nested.append(storage_parameteriser(builder))
+    p.nested.append(demand_parameteriser(builder))
+    p.nested.append(inflow_parameteriser(builder))
+    return p
+
 def translate(src_veneer,dest_fn):
     if os.path.exists(dest_fn):
         raise Exception('File exists')
@@ -678,63 +794,6 @@ class SourceOpenwaterModelBuilder(object):
 
         return catchment_template
 
-    def _fu_areas_parameteriser(self):
-        res = NestedParameteriser()
-        fu_areas = self.provider.get_fu_areas()
-        area_models = [
-            ('DepthToRate','area')
-        ]
-        for model,prop in area_models:
-            res.nested.append(ParameterTableAssignment(fu_areas,model,prop,'cgu','catchment'))
-
-        return res
-
-    def _storage_parameteriser(self):
-        p = NestedParameteriser()
-
-        storage_tables = merge_storage_tables(self.provider.data_path)
-        if storage_tables is None:
-            return p
-
-        # # FIX LVAS
-        # for k,tbl in storage_tables.items():
-        #     print('FIXING LVA FOR %s'%k)
-        #     tbl.rename(columns={
-        #         'areas':'volumes',
-        #         'volumes':'areas'
-        #     },inplace=True)
-
-        storage_parameters = LoadArraysParameters(storage_tables,'${node_name}','nLVA',model='Storage')
-        p.nested.append(storage_parameters)
-
-        demands_at_storages = self.provider._load_csv('Results/regulated_release_volume')
-        if demands_at_storages is not None:
-            demands_at_storages = demands_at_storages * PER_DAY_TO_PER_SECOND
-
-            storage_demand_inputs = DataframeInputs()
-            storage_demand_inputs.inputter(demands_at_storages, 'demand', '${node_name}',model='Storage')
-            p.nested.append(storage_demand_inputs)
-
-        static_storage_parameters = self.provider._load_csv('storage_params')
-        static_storage_parameters = static_storage_parameters.rename(columns={
-            'NetworkElement':'node_name',
-            'InitialStorage':'currentVolume'
-        })
-        p.nested.append(ParameterTableAssignment(static_storage_parameters,
-                                                 'Storage',
-                                                 dim_columns=['node_name'],
-                                                 complete=True))
-
-        storage_climate = self.provider._load_time_series_csv('storage_climate')
-        storage_climate = storage_climate.rename(columns=_rename_storage_variable)
-
-        storage_climate_inputs = DataframeInputs()
-        storage_climate_inputs.inputter(storage_climate,'rainfall','${node_name} Rainfall',model='Storage')
-        storage_climate_inputs.inputter(storage_climate,'pet','${node_name} Evaporation',model='Storage')
-        p.nested.append(storage_climate_inputs)
-
-        return p
-
     def remove_ignored_rows(self,param_df):
         if 'Functional Unit' in param_df.columns:
             print(len(param_df))
@@ -763,9 +822,9 @@ class SourceOpenwaterModelBuilder(object):
         print('Got graph, configuring parameters')
 
         p = Parameteriser()
-        p.append(self._fu_areas_parameteriser())
+        p.append(fu_areas_parameteriser(self.provider.get_fu_areas()))
 
-        p.append(self._storage_parameteriser())
+        p.append(node_model_parameteriser(self.builder))
 
         print('Building parameters')
         runoff_parameters = self.build_parameter_lookups(self.provider.runoff_parameters())
@@ -785,17 +844,6 @@ class SourceOpenwaterModelBuilder(object):
         climate_inputs,time_period, delta_t = self.provider.climate_data()
         simulation_length = len(time_period)
         p.append(climate_inputs)
-
-        print('Configuring inflow timeseries')
-        inflows = self.provider.inflows(time_period)
-        if inflows is not None:
-            inflow_inputs = DataframeInputs()
-            p.append(inflow_inputs)
-
-            inflow_inputs.inputter(inflows,'input','${node_name}',model=n.Input)
-
-            inflow_loads = self.provider.inflow_loads(inflows)
-            inflow_inputs.inputter(inflow_loads,'inputLoad','${node_name}:${constituent}',model='PassLoadIfFlow')
 
         for dt_model in ['DepthToRate','StorageRouting','LumpedConstituentRouting']:
           p.append(UniformParameteriser(dt_model,DeltaT=delta_t))
