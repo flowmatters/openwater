@@ -27,7 +27,8 @@ import json
 from functools import reduce
 from veneer.general import _extend_network
 from .const import *
-
+import logging
+logger = logging.getLogger(__name__)
 
 EXPECTED_LINK_PREFIX='link for catchment '
 
@@ -428,13 +429,16 @@ def build_catchment_graph(model_structure,network,progress=print,custom_processi
 
   return res
 
-def get_default_node_template(node_type,constituents,**kwargs):
+def get_default_node_template(node_type,constituents,templates=None,**kwargs):
+    if templates is None:
+        templates = DEFAULT_NODE_TEMPLATES
+
     template = templating.OWTemplate(node_type)
 
-    if node_type not in DEFAULT_NODE_TEMPLATES:
+    if node_type not in templates:
         raise Exception(f'Unsupported node: {node_type} at {kwargs.get("node_name","unnamed node")}')
 
-    DEFAULT_NODE_TEMPLATES[node_type](template,constituents,**kwargs)
+    templates[node_type](template,constituents,**kwargs)
     return template
 
 def build_parameter_lookups(target):
