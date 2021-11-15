@@ -208,7 +208,7 @@ class SourceOWComparison(object):
 
     def compare_flows(self):
         self._load_flows()
-        columns = self.link_outflow.columns
+        columns = [c for c in self.link_outflow.columns if c != 'dummy-catchment']
         return pd.DataFrame([self.compare_flow(c) for c in columns],index=columns)
 
     def get_ow_timeseries(self,*args,**kwargs):
