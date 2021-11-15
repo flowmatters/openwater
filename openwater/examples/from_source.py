@@ -187,7 +187,7 @@ def link_catchment_lookup(network):
   return res
 
 def filter_nodes(nodes):
-    IGNORE_NODES=['Confluence','Gauge','WaterUser']
+    IGNORE_NODES=['Confluence','Gauge','WaterUser','MinimumFlow']
     for ignore in IGNORE_NODES:
         nodes = nodes[~nodes.icon.str.contains(ignore)]
     return nodes
