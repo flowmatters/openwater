@@ -663,9 +663,9 @@ def translate(src_veneer,dest_fn):
     model.write_model(dest_fn,simulation_length)
     return  model
 
-class VeneerModelConfigurationProvider(object):
-    def __init__(self,v):
-        self.v = v
+# class VeneerModelConfigurationProvider(object):
+#     def __init__(self,v):
+#         self.v = v
 
 class FileBasedModelConfigurationProvider(object):
     def __init__(self,path,climate_patterns,time_period=None):
@@ -776,9 +776,9 @@ class FileBasedModelConfigurationProvider(object):
         return self._load_parameters('fr-',self._load_csv('routing_models'))
 
     def climate_data(self):
-        data = self._load_csv('climate')
-        if self.time_period is not None:
-          data = data.reindex(self.time_period)
+        data = self._load_time_series_csv('climate')
+        # if self.time_period is not None:
+        #   data = data.reindex(self.time_period)
 
         time_steps = data.index
         delta_t = (time_steps[1]-time_steps[0]).total_seconds()
@@ -889,7 +889,7 @@ class SourceOpenwaterModelBuilder(object):
         p = Parameteriser()
         p.append(fu_areas_parameteriser(self.provider.get_fu_areas()))
 
-        p.append(node_model_parameteriser(self.builder))
+        p.append(node_model_parameteriser(self.provider))
 
         print('Building parameters')
         runoff_parameters = self.build_parameter_lookups(self.provider.runoff_parameters())
