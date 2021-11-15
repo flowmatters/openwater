@@ -36,8 +36,9 @@ def _matches_constraints(constraint_tags,present_tags):
             return False
     return True
 
-def initialise_model_inputs(model_grp,n_cells,n_inputs,n_timesteps):
+def initialise_model_inputs(model,model_grp,n_cells,n_inputs,n_timesteps):
     if not 'inputs' in model_grp:
+        logger.info('Initialising model inputs: %s (%d x %d x %d',model,n_cells,n_inputs,n_timesteps)
         model_grp.create_dataset('inputs',shape=(n_cells,n_inputs,n_timesteps),dtype=np.float64,fillvalue=0)
 
 class Parameteriser(object):
@@ -90,7 +91,8 @@ class DataframeInputs(object):
         if not len(set(inputs).intersection(set(self._inputs.keys()))):
             return
 
-        logger.info('==== Called for %s ===='%model_desc.name)
+        logger.info('==== Called for %s ====',model_desc.name)
+        logger.info('Timeseries for %s',self._inputs.keys())
         logger.debug(inputs)
         logger.debug(grp)
         # print('Dims',dims)
@@ -105,19 +107,27 @@ class DataframeInputs(object):
                     continue
 
                 inputters = self._inputs[input_name]
+                lengths = set([len(inputter.df) for inputter in inputters])
+                if len(lengths) > 1:
+                    logger.error(f'Differing length inputs for {input_name}: {lengths}')
+
                 for inputter in inputters:
                     if not inputter.applies(model_desc):
                         continue
-                    initialise_model_inputs(grp,len(nodes_df),len(inputs),len(self._inputs[input_name][0].df))
+                    initialise_model_inputs(model_desc.name,grp,len(nodes_df),len(inputs),len(inputters[0].df))
 
                     data = inputter.get_series(**node)
                     if data is None:
                         continue
                     applied += 1
+                    actual_len = len(data)
+                    expected_len = grp['inputs'].shape[2]
+                    if actual_len != expected_len:
+                        raise Exception(f'Timeseries mismatch on {input_name} to {model_desc.name}. Expecting {expected_len} timesteps, but provided with {actual_len}')
                     grp['inputs'][run_idx,input_num,:] = data
 
             if (i%100 == 0) and (applied>0):
-                logger.info('Processing %s. Applied %d inputs',node_name,applied)
+                logger.info('Processing %s. Applied %d inputs ()',node_name,applied)
             i += 1
 
 class SingleTimeseriesInput(object):
@@ -344,7 +354,7 @@ class UniformInput(object):
       for input_num,input_name in enumerate(inputs):
           if input_name!=self.input_name:
             continue
-          initialise_model_inputs(grp,len(nodes_df),len(inputs),self._length)
+          initialise_model_inputs(model_desc.name,grp,len(nodes_df),len(inputs),self._length)
           print('Uniform %s = %f'%(self.input_name,self.value))
           for cell in range(len(nodes_df)):
             if hasattr(self.value,'__call__'):
