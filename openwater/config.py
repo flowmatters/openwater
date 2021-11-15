@@ -506,6 +506,8 @@ class NestedParameteriser(object):
 
     def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
         for np in self.nested:
+            if np is None: continue
+
             np.parameterise(model_desc,grp,instances,dims,nodes,nodes_df)
 
 class CustomParameteriser(object):
