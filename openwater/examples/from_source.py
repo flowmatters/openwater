@@ -498,7 +498,7 @@ def storage_parameteriser(builder):
     storage_parameters = LoadArraysParameters(storage_tables,'${node_name}','nLVA',model='Storage')
     p.nested.append(storage_parameters)
 
-    demands_at_storages = builder._load_csv('Results/regulated_release_volume')
+    demands_at_storages = builder._load_time_series_csv('Results/regulated_release_volume')
     if demands_at_storages is not None:
         demands_at_storages = demands_at_storages * PER_DAY_TO_PER_SECOND
 
@@ -517,12 +517,15 @@ def storage_parameteriser(builder):
                                                 complete=True))
 
     storage_climate = builder._load_time_series_csv('storage_climate')
-    storage_climate = storage_climate.rename(columns=_rename_storage_variable)
+    if len(storage_climate):
+        storage_climate = storage_climate.rename(columns=_rename_storage_variable)
 
-    storage_climate_inputs = DataframeInputs()
-    storage_climate_inputs.inputter(storage_climate,'rainfall','${node_name} Rainfall',model='Storage')
-    storage_climate_inputs.inputter(storage_climate,'pet','${node_name} Evaporation',model='Storage')
-    p.nested.append(storage_climate_inputs)
+        storage_climate_inputs = DataframeInputs()
+        storage_climate_inputs.inputter(storage_climate,'rainfall','${node_name} Rainfall',model='Storage')
+        storage_climate_inputs.inputter(storage_climate,'pet','${node_name} Evaporation',model='Storage')
+        p.nested.append(storage_climate_inputs)
+    else:
+        raise Exception('NO storage climate')
 
     storage_fsl_inputs = DataframeInputs()
     storage_target_cap = pd.DataFrame()
