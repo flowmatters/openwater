@@ -598,12 +598,40 @@ def inflow_parameteriser(builder):
         inflow_inputs.inputter(inflow_loads,'inputLoad','${node_name}:${constituent}',model='PassLoadIfFlow')
     return p
 
+def loss_parameteriser(builder):
+    losses = builder._load_all_csvs('loss-table-')
+    if not len(losses):
+        return None
+
+    print('Configuring losses')
+    print(losses.keys())
+
+    adjusted_losses = {}
+    should_fail = False
+    for k,tbl in losses.items():
+        if tbl is None:
+            print(f'No loss table for {k}')
+            should_fail = True
+            continue
+
+        tbl = tbl.rename(columns={'inflow':'inputAmount'})
+        tbl['proportion'] = tbl['loss']/tbl['inputAmount']
+        tbl = tbl.fillna(0)
+        adjusted_losses[k] = tbl
+
+    assert not should_fail
+
+    loss_tables = LoadArraysParameters(adjusted_losses[['inputAmount','proportion']],'${node_name}','nPts',model='RatingCurvePartition')
+
+    return loss_tables
+
 def node_model_parameteriser(builder):
     p = NestedParameteriser()
 
     p.nested.append(storage_parameteriser(builder))
     p.nested.append(demand_parameteriser(builder))
     p.nested.append(inflow_parameteriser(builder))
+    p.nested.append(loss_parameteriser(builder))
     return p
 
 def translate(src_veneer,dest_fn):
@@ -687,6 +715,17 @@ class FileBasedModelConfigurationProvider(object):
             data['Catchment'].fillna(data['NetworkElement'],inplace=True)
             data['link_name'] = data['NetworkElement']
 
+        return data
+
+    def _load_all_csvs(self,prefix):
+        files = [os.path.basename(fn) for fn in self._find_files(f'{prefix}*.csv*')]
+        data = {}
+        for f in files:
+            fn = f.replace('.csv','').replace('.gz','')
+            tbl = self._load_csv(fn)
+            if tbl is None:
+                raise Exception(f'Could not load expected file: {fn} ({f})')
+            data[fn.replace(prefix,'')] = tbl
         return data
 
     def _load_time_series_csv(self,f):
@@ -946,6 +985,22 @@ def build_inflow_node_template(template:templating.OWTemplate,constituents: list
         template.add_link(OWLink(flow_node,'output',load_input,'flow'))
         template.define_output(load_input,'outputLoad',DOWNSTREAM_LOAD_FLUX,constituent=con,**kwargs)
 
+def build_loss_node_template(template:templating.OWTemplate,constituents: list,**kwargs):
+    loss = template.add_node(n.RatingCurvePartition,process='loss',**kwargs)
+    template.define_input(loss,'input',UPSTREAM_FLOW_FLUX,**kwargs)
+    template.define_output(loss,'output1',DOWNSTREAM_FLOW_FLUX,**kwargs)
+
+    prop = template.add_node(n.ComputeProportion,process='loss_proportion',**kwargs)
+    template.add_link(OWLink(loss,'output2',prop,'numerator'))
+    # template.add_link(OWLink(loss,'output2',prop,'numerator'))
+    # denominator is? inflow - ie an overloaded input? 
+    for con in constituents:
+        con_ext = template.add_node(n.VariablePartition,process='constituent_loss',constituent=con,**kwargs)
+        template.add_link(OWLink(prop,'proportion',con_ext,'fraction'))
+        template.define_input(con_ext,'input',UPSTREAM_LOAD_FLUX,constituent=con,**kwargs)
+        template.define_output(con_ext,'output1',DOWNSTREAM_LOAD_FLUX,constituent=con,**kwargs)
+        #TODO Or output2?
+
 def storage_template_builder(constituent_model_map=None):
   def build_storage_node_template(template,constituents,**kwargs):
     nonlocal constituent_model_map
@@ -981,5 +1036,6 @@ def _rename_storage_variable(col):
 DEFAULT_NODE_TEMPLATES={
     'Extraction':build_extraction_node_template,
     'InjectedFlow':build_inflow_node_template,
-    'Storage':storage_template_builder() # Default to lumped constituent routing
+    'Storage':storage_template_builder(), # Default to lumped constituent routing
+    'Loss':build_loss_node_template
 }
