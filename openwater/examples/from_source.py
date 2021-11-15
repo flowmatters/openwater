@@ -554,17 +554,27 @@ def demand_parameteriser(builder):
         extraction_node_id = us_links[0]['properties']['from_node']
         extraction_node = nodes.find_by_id(extraction_node_id)[0]
         extraction_node_name = extraction_node['properties']['name']
+        print(wu_name,extraction_node_name)
+
         demand = builder._load_csv(f'timeseries-demand-{wu_name}')
 
         if demand is None:
-            demand = np.array(builder._load_csv(f'monthly-pattern-demand-{wu_name}').volume)
+            pattern_demand = builder._load_csv(f'monthly-pattern-demand-{wu_name}')
+            if pattern_demand is None:
+                builder.warn('No demand for %s. Possibly function editor (unsupported)',wu_name)
+                continue
+
+            demand = np.array(pattern_demand.volume)
             month_ts = builder.time_period.month-1
             demand = demand[month_ts]
             demand = pd.DataFrame({'TSO':demand},index=builder.time_period)
         else:
             demand = demand.reindex(builder.time_period)
+            if 'TSO' not in demand.columns:
+                renames = {demand.columns[0]:'TSO'}
+                print('No TSO column. Renaming',renames)
+                demand = demand.rename(columns=renames)
 
-        print(wu_name,extraction_node_name)
         print(demand.columns)
         demands[extraction_node_name] = demand['TSO']
 
@@ -642,6 +652,11 @@ class FileBasedModelConfigurationProvider(object):
                                left_on='link',right_on='id',how='inner').rename(
                                    columns={'name_x':'catchment','link':'link_id','name_y':'link'})
         self.catchment_link_lookup = dict(zip(lookup_df['link'],lookup_df['catchment']))
+        self.warnings = []
+
+    def warn(self,msg,*args):
+        self.warnings.append(msg.format(*args))
+        logger.warn(msg,*args)
 
     def _find_files(self,pattern,ignoring=[]):
         files = [os.path.basename(fn) for fn in \
