@@ -130,7 +130,7 @@ def build_model_lookup(source_source=None,lookup_table=None,default=None,simplif
     return default
   return lookup_fn
 
-def merge_storage_tables(directory):
+def merge_storage_tables(directory,fsvs,fsls):
     def read_csv(fn):
         fn = os.path.join(directory,f'{fn}.csv')
         if not os.path.exists(fn):
@@ -151,6 +151,10 @@ def merge_storage_tables(directory):
     for node,node_outlets in outlets.items():
         lva = read_csv(f'storage_lva_{node}')
         lva = lva.set_index('level')
+        if fsls[node] not in lva.index:
+            lva.loc[fsls[node]] = fsvs[node]
+        lva = lva.sort_index()
+
         release_curves = []
         levels = set(lva.index)
         for outlet in node_outlets:
@@ -491,7 +495,18 @@ def fu_areas_parameteriser(fu_areas,area_models=DEFAULT_AREAL_MODELS):
 def storage_parameteriser(builder):
     p = NestedParameteriser()
 
-    storage_tables = merge_storage_tables(builder.data_path)
+    static_storage_parameters = builder._load_csv('storage_params')
+    if static_storage_parameters is None:
+        return p
+
+    static_storage_parameters = static_storage_parameters.rename(columns={
+        'NetworkElement':'node_name',
+        'InitialStorage':'currentVolume'
+    })
+    fsvs = dict(zip(static_storage_parameters['node_name'],static_storage_parameters['FullSupplyVolume']))
+    fsls = dict(zip(static_storage_parameters['node_name'],static_storage_parameters['FullSupplyLevel']))
+
+    storage_tables = merge_storage_tables(builder.data_path,fsvs=fsvs,fsls=fsls)
     if storage_tables is None:
         return p
 
@@ -506,11 +521,6 @@ def storage_parameteriser(builder):
         storage_demand_inputs.inputter(demands_at_storages, 'demand', '${node_name}',model='Storage')
         p.nested.append(storage_demand_inputs)
 
-    static_storage_parameters = builder._load_csv('storage_params')
-    static_storage_parameters = static_storage_parameters.rename(columns={
-        'NetworkElement':'node_name',
-        'InitialStorage':'currentVolume'
-    })
     p.nested.append(ParameterTableAssignment(static_storage_parameters,
                                                 'Storage',
                                                 dim_columns=['node_name'],
@@ -530,8 +540,6 @@ def storage_parameteriser(builder):
     storage_fsl_inputs = DataframeInputs()
     storage_target_cap = pd.DataFrame()
 
-    fsvs = dict(zip(static_storage_parameters['node_name'],static_storage_parameters['FullSupplyVolume']))
-    # fsls = dict(zip(static_storage_parameters['node_name'],static_storage_parameters['FullSupplyLevel']))
 
     for k,tbl in storage_tables.items():
         cap = tbl['volumes'].max() - fsvs[k]# m3
