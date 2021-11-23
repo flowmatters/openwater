@@ -81,6 +81,8 @@ class DataframeInputs(object):
         self._inputs = {}
     
     def inputter(self,df,input_name,col_format,model=None,**kwargs):
+        assert df is not None
+
         if not input_name in self._inputs:
             self._inputs[input_name] = []
         self._inputs[input_name].append(DataframeInput(df,col_format,model,kwargs))
