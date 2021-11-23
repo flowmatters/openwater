@@ -742,6 +742,8 @@ class FileBasedModelConfigurationProvider(object):
 
     def _load_time_series_csv(self,f):
         df = self._load_csv(f)
+        if df is None:
+            return None
         return df.reindex(self.time_period)
 
     def get_functional_unit_types(self):
