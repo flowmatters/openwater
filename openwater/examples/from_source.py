@@ -627,11 +627,11 @@ def loss_parameteriser(builder):
         tbl = tbl.rename(columns={'inflow':'inputAmount'})
         tbl['proportion'] = tbl['loss']/tbl['inputAmount']
         tbl = tbl.fillna(0)
-        adjusted_losses[k] = tbl
+        adjusted_losses[k] = tbl[['inputAmount','proportion']]
 
     assert not should_fail
 
-    loss_tables = LoadArraysParameters(adjusted_losses[['inputAmount','proportion']],'${node_name}','nPts',model='RatingCurvePartition')
+    loss_tables = LoadArraysParameters(adjusted_losses,'${node_name}','nPts',model='RatingCurvePartition')
 
     return loss_tables
 
