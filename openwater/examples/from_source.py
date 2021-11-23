@@ -596,14 +596,16 @@ def inflow_parameteriser(builder):
     p = NestedParameteriser()
     print('Configuring inflow timeseries')
     inflows = builder.inflows(builder.time_period)
+
     if inflows is not None:
         inflow_inputs = DataframeInputs()
-        p.append(inflow_inputs)
+        p.nested.append(inflow_inputs)
 
         inflow_inputs.inputter(inflows,'input','${node_name}',model=n.Input)
 
         inflow_loads = builder.inflow_loads(inflows)
-        inflow_inputs.inputter(inflow_loads,'inputLoad','${node_name}:${constituent}',model='PassLoadIfFlow')
+        if inflow_loads is not None:
+            inflow_inputs.inputter(inflow_loads,'inputLoad','${node_name}:${constituent}',model='PassLoadIfFlow')
     return p
 
 def loss_parameteriser(builder):
@@ -695,8 +697,10 @@ class FileBasedModelConfigurationProvider(object):
         logger.warn(msg,*args)
 
     def _find_files(self,pattern,ignoring=[]):
-        files = [os.path.basename(fn) for fn in \
-            glob(os.path.join(self.data_path,pattern))]
+        patterns = [pattern, pattern+'.gz']
+        files = sum([list(glob(os.path.join(self.data_path,p))) for p in patterns],[])
+        files = [os.path.basename(fn) for fn in files]
+
         def in_ignore_list(fn):
             return len([pattern for pattern in ignoring if pattern in fn])
 
@@ -807,8 +811,9 @@ class FileBasedModelConfigurationProvider(object):
         if not len(files):
             return None
 
+        files = [fn.replace('.csv','').replace('.gz','') for fn in files]
         def make_col_name(fn):
-            return fn.replace('timeseries-inflow-','').replace('.csv','')
+            return fn.replace('timeseries-inflow-','')
         all_data = [self._load_csv(fn) for fn in files]
         all_data = pd.DataFrame({make_col_name(fn):df[df.columns[0]] \
             for fn,df in zip(files,all_data)})
