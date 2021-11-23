@@ -472,9 +472,12 @@ def _raw_parameters(model_map,vals):
     return result
 
 class LoadArraysParameters(object):
-    def __init__(self,table_lookup,key_format,len_parameter,column_lookup={},model=None):
+    def __init__(self,table_lookup,key_format,len_parameter,column_lookup=None,model=None):
         self.table_lookup = table_lookup
         self.key_format = key_format
+
+        if column_lookup is None:
+            column_lookup = {}
         self.column_lookup = column_lookup
         self.len_parameter = len_parameter
         self.model = model
@@ -488,14 +491,16 @@ class LoadArraysParameters(object):
     def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
         if not _models_match(self.model,model_desc):
             return
-        print('Running for ',model_desc.name)
+        logger.info('Running LoadArrayParameters for %s.',model_desc.name)
+        logger.info('self.model=%s',self.model)
+
         for p in self.nested:
             p.parameterise(model_desc,grp,instances,dims,nodes,nodes_df)
 
         raw = _raw_parameters(nodes_df,grp['parameters'][...])
         indexed = create_indexed_parameter_table(model_desc.description,raw)
         starts = param_starts(model_desc.description,indexed.transpose())
-        populated = populate_table_parameters(indexed,starts,self.table_lookup,self.key_format)
+        populated = populate_table_parameters(indexed,starts,self.table_lookup,self.key_format,self.column_lookup)
         final = np.array(populated).transpose()
         for ix, row in nodes_df.iterrows():
             run_index = row._run_idx
