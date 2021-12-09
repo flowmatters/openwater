@@ -965,7 +965,7 @@ class ModelFile(object):
     def _raw_parameters(self,model,**tags):
         vals = self._h5f['MODELS'][model]['parameters'][...]
 
-        model_map = self._map_model_dims('Storage')
+        model_map = self._map_model_dims(model)
         df = pd.DataFrame(model_map)
         dim_cols = set(df.columns) - {'_run_idx'}
         df = df.set_index(list(dim_cols))
@@ -973,9 +973,6 @@ class ModelFile(object):
         param_df = pd.DataFrame(vals).transpose().reindex(index=df['_run_idx'])
 
         result = param_df.set_index(df.index)
-        for k,v in tags.items():
-            result = result[result[k]==v]
-
         return result
 
     def parameters(self,model,**tags):
@@ -988,7 +985,14 @@ class ModelFile(object):
     def indexed_parameters(self,model,**tags):
         raw = self._raw_parameters(model,**tags)
         desc = getattr(node_types,model).description
-        return create_indexed_parameter_table(desc,raw)
+        indexed = create_indexed_parameter_table(desc,raw)
+        index_names = indexed.index.names
+        indexed = indexed.reset_index()
+        for k,v in tags.items():
+            indexed = indexed[indexed[k]==v]
+        indexed = indexed.set_index(index_names)
+
+        return indexed
 
     def nodes_matching(self,model,**tags):
         if hasattr(model,'name'):
