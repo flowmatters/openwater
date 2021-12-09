@@ -982,6 +982,13 @@ class ModelFile(object):
                                                  'parameters',
                                                  **tags)
 
+    def initial_states(self,model,**tags):
+        return _tabulate_model_scalars_from_file(self._h5f,
+                                                 model,
+                                                 self._map_model_dims(model),
+                                                 'states',
+                                                 **tags)
+
     def indexed_parameters(self,model,**tags):
         raw = self._raw_parameters(model,**tags)
         desc = getattr(node_types,model).description
