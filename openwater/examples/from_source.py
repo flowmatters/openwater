@@ -150,10 +150,20 @@ def merge_storage_tables(directory,fsvs,fsls):
     result = {}
     for node,node_outlets in outlets.items():
         lva = read_csv(f'storage_lva_{node}')
-        lva = lva.set_index('level')
-        if fsls[node] not in lva.index:
-            lva.loc[fsls[node]] = fsvs[node]
+        lva = lva.drop_duplicates(subset='volume',keep='last')
+        if min(lva.volume) > 0:
+            logger.warning('No zero row in storage LVA: %s'%node)
+            lva = lva.append({'volume':0,'area':0,'level':0},ignore_index=True)
+        if min(lva.area) > 0:
+            logger.warning('No zero minimum area in storage LVA: %s'%node)
+            lva.loc[0,'area'] = 0
+
+        lva = lva.set_index('volume')
+        if fsvs[node] not in lva.index:
+            lva.loc[fsvs[node],'level'] = fsls[node]
         lva = lva.sort_index()
+        lva = lva.interpolate()
+        lva = lva.reset_index().set_index('level')
 
         release_curves = []
         levels = set(lva.index)
