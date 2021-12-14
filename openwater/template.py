@@ -1197,6 +1197,7 @@ def _run(time_period,model_fn=None,results_fn=None,**kwargs):
                 end_stream = True
                 sleep(0.05)
 
+    assert proc.returncode==0
     return OpenwaterResults(model_fn,results_fn,time_period)
 
 def run_simulation(model,output='model_outputs.h5',overwrite=False):
