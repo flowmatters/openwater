@@ -159,7 +159,7 @@ class SemiLumpedCatchment(object):
     return tpl
 
   def get_node_template(self,node_type,**kwargs) -> templating.OWTemplate:
-      return self.node_template(node_type,self.constituents,**kwargs)
+    return self.node_template(node_type,self.constituents,**kwargs)
 
   def link_catchments(self,graph,upstream,downstream):
     linkages = [(self.routing,'%s-FlowRouting (%s)',[])] + \
