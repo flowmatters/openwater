@@ -191,8 +191,14 @@ class SourceOWComparison(object):
 
     def compare_flow(self,sc):
         orig, ow = self.comparable_flows(sc)
-        if orig is None or ow is None:
-            print('Problem in %s'%sc)
+        error = False
+        if orig is None:
+            print('No flows for %s in source implementation'%sc)
+            error = True
+        if ow is None:
+            print('No flows for %s in openwater implementation'%sc)
+            error = True
+        if error:
             return {}#np.nan
 
         _,_,r_value,_,_ = stats.linregress(orig,ow)
