@@ -604,7 +604,7 @@ def demand_parameteriser(builder):
 
 def inflow_parameteriser(builder):
     p = NestedParameteriser()
-    print('Configuring inflow timeseries')
+    logger.info('Configuring inflow timeseries')
     inflows = builder.inflows(builder.time_period)
 
     if inflows is not None:
@@ -623,7 +623,7 @@ def loss_parameteriser(builder):
     if not len(losses):
         return None
 
-    print('Configuring losses')
+    logger.info('Configuring losses')
     print(losses.keys())
 
     adjusted_losses = {}
