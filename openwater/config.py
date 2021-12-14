@@ -460,7 +460,7 @@ def populate_table_parameters(existing,param_start,tables,key_format,column_look
 def _raw_parameters(model_map,vals):
     df = pd.DataFrame(model_map)
     print(df)
-    dim_cols = [col for col in df.columns if not col.startswith('_')]
+    dim_cols = [col for col in df.columns if (not col.startswith('_') and not col=='node')]
     df = df.set_index(list(dim_cols))
 
     param_df = pd.DataFrame(vals).transpose().reindex(index=df['_run_idx'])
