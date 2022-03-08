@@ -80,13 +80,17 @@ class SourceOWComparison(object):
 
     def get_generation(self,constituent,catchment,fu):
         from_source = self.get_source_timeseries('%sgeneration'%constituent)
+        comparison_column = '%s: %s'%(fu,catchment)
 
         model,output = self.process_map.generation_model(constituent,fu)
         # print('OW results in %s.%s'%(model,output))
-        from_ow = self.get_ow_timeseries(model,output,'catchment',cgu=fu,constituent=constituent)
+        if model is None:
+          from_ow = from_source[comparison_column]*0.0
+        else:
+          from_ow = self.get_ow_timeseries(model,output,'catchment',cgu=fu,constituent=constituent)
+          from_ow = from_ow[catchment]
 
-        comparison_column = '%s: %s'%(fu,catchment)
-        return from_source[comparison_column], from_ow[catchment]
+        return from_source[comparison_column], from_ow
 
     def compare_fu_level_results(self,elements,s_pattern,ow_fn,tag,progress=print):
         errors = []
@@ -102,15 +106,22 @@ class SourceOWComparison(object):
                 # ts_tags[tag]=e
                 # ow = self.results.time_series(model,output,'catchment',**ts_tags)
                 ow = ow_fn(e,fu)
-                ow_columns = [c for c in ow.columns if not c=='dummy-catchment']
-                comparison_columns = ['%s: %s'%(fu,catchment) for catchment in ow_columns ]
+                if ow is None: # No results from openwater - fill as 0
+                  ow_columns = list(set([c.split(': ')[-1] for c in comparison.columns]))
+                  comparison_columns = [f'{fu}: {c}' for c in ow_columns]
+                  ow = comparison[comparison_columns] * 0.0
+                  ow = ow.rename(columns=lambda c:c.split(': ')[-1])
+                else:
+                  ow_columns = [c for c in ow.columns if not c=='dummy-catchment']
+                  comparison_columns = ['%s: %s'%(fu,catchment) for catchment in ow_columns ]
+
                 try:
                     fu_comparison = comparison[comparison_columns]
                 except:
                     print(comparison.columns)
                     print(comparison.index)
                     raise
-                if ow.sum().sum()==0 and fu_comparison.sum().sum()==0:
+                if ((ow is None) or (ow.sum().sum()==0)) and fu_comparison.sum().sum()==0:
                     for sc in ow_columns:
                         errors.append({'catchment':sc,'cgu':fu,tag:e,'ssquares':0,
                                        'sum-ow':0,'sum-orig':0,'r-squared':1,
@@ -139,6 +150,8 @@ class SourceOWComparison(object):
 
     def get_ow_gen(self,c,fu):
         mod,flux = self.process_map.generation_model(c,fu)
+        if mod is None:
+          return None
         return self.results.time_series(mod,flux,'catchment',cgu=fu,constituent=c)
 
     def compare_constituent_generation(self,constituents=None,progress=print):
