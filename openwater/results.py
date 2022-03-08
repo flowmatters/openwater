@@ -125,6 +125,7 @@ class OpenwaterResults(object):
     report_dim = dim_names.index(columns)
 
     all_sequences = {}
+    found_match=False
     for i,col_name in enumerate(dims[columns]):
       if i == run_map.shape[report_dim]:
         # Looks like a dummy tag value not present here
@@ -139,8 +140,14 @@ class OpenwaterResults(object):
       col_data = data[run_indices,:]
       if col_data.shape[0]==1:
         all_sequences[col_name] = col_data[0,:]
-      else:
+        found_match=True
+      elif col_data.shape[0]>1:
         all_sequences[col_name] = agg_fns[aggregator or 'mean'](col_data)
+        found_match=True
+
+    if not found_match:
+      raise Exception(f'No matching model nodes for model {model}, with column tag {columns} and constraint tags {kwargs}.')
+
     return pd.DataFrame(all_sequences,index=self.time_period)
 
   def table(self,model,variable:str,rows:str,columns:str,temporal_aggregator:str='mean',aggregator:str=None,**kwargs) -> pd.DataFrame:
