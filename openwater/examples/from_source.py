@@ -10,6 +10,7 @@ Only workable in limited circumstances:
 import os
 from glob import glob
 import numpy as np
+from openwater.discovery import set_exe_path,discover
 import pandas as pd
 import geopandas as gpd
 import openwater.nodes as n
@@ -18,7 +19,7 @@ from openwater.catchments import SemiLumpedCatchment, \
     UPSTREAM_FLOW_FLUX, UPSTREAM_LOAD_FLUX, \
     get_model_for_provider
 import openwater.template as templating
-from openwater.template import OWLink
+from openwater.template import OWLink,ModelFile
 from openwater.config import Parameteriser, ParameterTableAssignment, \
     NestedParameteriser, DataframeInputs, UniformParameteriser, \
     LoadArraysParameters
@@ -26,6 +27,7 @@ from openwater.timing import init_timer, report_time, close_timer
 import json
 from functools import reduce
 from veneer.general import _extend_network
+from veneer.utils import split_network
 from .const import *
 import logging
 logger = logging.getLogger(__name__)
@@ -1070,3 +1072,64 @@ DEFAULT_NODE_TEMPLATES={
     'Storage':storage_template_builder(), # Default to lumped constituent routing
     'Loss':build_loss_node_template
 }
+
+def _arg_parser():
+  import argparse
+  def parse_time_period(txt):
+    result = txt.split('-')
+    if len(result)!=2:
+      raise argparse.ArgumentTypeError(f'{txt} is not a valid time period')
+    return result
+
+  from veneer import extract_config as ec
+  parser = ec._base_arg_parser()
+  parser.add_argument('-o','--openwater',help='Path to Openwater binaries',default=None)
+  parser.add_argument('--timeperiod',help='Time period for converted model (format yyyy/mm/dd-yyyy/mm/dd)',type=parse_time_period,default=None)#'2000/01/01-2000/12/31')
+  parser.add_argument('--timestep',help='Timestep for converted model',default='1d')
+  parser.add_argument('--destination',help='Destination directory for converted model',default='.')
+  parser.add_argument('--existing', help='Use existing model structure and only convert parameters', action='store_true')
+  parser.add_argument('--split',type=int,help='Split the model into multiple files (structure, parameters, initial states and input timeseries) where number is number of input timeseries files',default=0)
+  parser.add_argument('--run',help='Run the converted model',action='store_true',default=False)
+  return parser
+
+
+def build_main(builder,model,timeperiod,openwater=None,existing=False,run=False,**kwargs):
+  print('Build')
+  if openwater is not None:
+    set_exe_path(openwater)
+  discover()
+
+  dest = os.path.abspath(kwargs.get('destination','.'))
+  if not os.path.exists(dest):
+    os.makedirs(dest)
+
+  model_fn = os.path.join(dest,model+'.h5')
+  if existing:
+      model_file = ModelFile(model_fn)
+  else:
+      model_file = None
+
+  source = os.path.abspath(os.path.join(kwargs.get('extractedfiles','.'),model))
+
+  time_period = pd.date_range(timeperiod[0],timeperiod[1],freq=kwargs.get('timestep','1d'))
+  model_obj, meta, network = builder(source,existing=model_file)
+
+  if existing:
+    model_obj.write()
+  else:
+    model_obj.write_model(model_fn)
+
+  json.dump(meta,open(model_fn.replace('.h5','.meta.json'),'w'),indent=2,default=str)
+
+  links,nodes,catchments = split_network(network)
+  links.to_file(model_fn.replace('.h5','.links.json'),driver='GeoJSON')
+  nodes.to_file(model_fn.replace('.h5','.nodes.json'),driver='GeoJSON')
+  catchments.to_file(model_fn.replace('.h5','.catchments.json'),driver='GeoJSON')
+
+  if run:
+    model_obj.run(time_period,overwrite=True,verbose=True)
+
+if __name__=='__main__':
+  import veneer.extract_config as ec
+  args = ec._parsed_args(_arg_parser())
+  build_main(None,**args)
