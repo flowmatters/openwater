@@ -564,12 +564,13 @@ def storage_parameteriser(builder):
     return p
 
 def demand_parameteriser(builder):
-    nodes = builder.network['features'].find_by_feature_type('node')
+    network = builder.network()
+    nodes = network['features'].find_by_feature_type('node')
     water_users = nodes.find_by_icon('/resources/WaterUserNodeModel')
     demands = pd.DataFrame()
     for wu in water_users:
         wu_name = wu['properties']['name']
-        us_links = builder.network.upstream_links(wu['properties']['id'])
+        us_links = network.upstream_links(wu['properties']['id'])
         assert len(us_links)==1
         extraction_node_id = us_links[0]['properties']['from_node']
         extraction_node = nodes.find_by_id(extraction_node_id)[0]
@@ -736,6 +737,7 @@ class FileBasedModelConfigurationProvider(object):
         if not os.path.exists(fn):
             fn = fn + '.gz'
             if not os.path.exists(fn):
+                logger.warn('No such file: %s',fn)
                 return None
 
         data = pd.read_csv(fn, index_col=0, parse_dates=True)
@@ -846,14 +848,17 @@ class FileBasedModelConfigurationProvider(object):
         if not len(conc_files):
             return None
 
+        def clean_fn(fn):
+          return fn.replace('.csv','').replace('.gz','')
         def make_conc_col_name(fn):
-            fn = fn.replace('timeseries-inflow-concentration-','').replace('.csv','')
+            fn = clean_fn(fn)
+            fn = fn.replace('timeseries-inflow-concentration-','')
             components = fn.split('-')
             constituent = components[0]
             node_name = '-'.join(components[1:])
             return f'{node_name}:{constituent}'
 
-        all_conc_data = [self._load_csv(fn) for fn in conc_files]
+        all_conc_data = [self._load_csv(clean_fn(fn)) for fn in conc_files]
         all_conc_data = pd.DataFrame({make_conc_col_name(fn):df[df.columns[0]] \
             for fn,df in zip(conc_files,all_conc_data)})
         all_conc_data = all_conc_data.reindex(inflows.index)
