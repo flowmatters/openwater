@@ -1078,6 +1078,37 @@ DEFAULT_NODE_TEMPLATES={
     'Loss':build_loss_node_template
 }
 
+def node_lookups(network_fn):
+  import veneer
+
+  network_raw = json.load(open(network_fn,'r'))
+  network = _extend_network(network_raw)
+  network_df = network.as_dataframe()
+  catchments = network_df[network_df.feature_type=='catchment'][['name','link']]
+  links = network_df[network_df.feature_type=='link'][['id','from_node','name']].rename(columns={'name':'name_link'})
+  nodes = network_df[network_df.feature_type=='node'][['id','name']]
+  upstream_nodes = pd.merge(pd.merge(catchments,links,how='right',left_on='link',right_on='id'),nodes,left_on='from_node',right_on='id',suffixes=['_catchment','_node'])[['name_catchment','name_node','name_link']]
+  upstream_nodes = upstream_nodes.rename(columns=lambda c:c[5:])
+  c2n= upstream_nodes.set_index('catchment')['node'].to_dict()
+  l2usn= upstream_nodes.set_index('link')['node'].to_dict()
+
+  outlets = network.outlet_nodes()
+  outlet_ids = [n['properties']['id'] for n in outlets]
+  outlet_names = [n['properties']['name'] for n in outlets]
+  outlet_lookup = dict(zip(outlet_ids,outlet_names))
+
+  upstream_links = network_df[network_df.to_node.isin(outlet_ids)]
+  upstream_links = upstream_links.drop_duplicates(subset=['to_node'],keep=False)
+  upstream_catchments = network_df[network_df.link.isin(upstream_links.id)]
+
+  us_catchment_to_node = upstream_links.set_index('id').loc[upstream_catchments.link]['to_node']
+  c2outlet = dict(zip(upstream_catchments.name,[outlet_lookup[n] for n in us_catchment_to_node]))
+
+  upstream_links = upstream_links[~upstream_links.id.isin(upstream_catchments.link)]
+  l2outlet = dict(zip(upstream_links.name,[outlet_lookup[n] for n in upstream_links.to_node]))
+
+  return c2n,l2usn,c2outlet,l2outlet
+
 def _arg_parser():
   import argparse
   def parse_time_period(txt):
