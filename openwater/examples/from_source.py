@@ -1090,6 +1090,9 @@ def node_lookups(network_fn):
   upstream_nodes = pd.merge(pd.merge(catchments,links,how='right',left_on='link',right_on='id'),nodes,left_on='from_node',right_on='id',suffixes=['_catchment','_node'])[['name_catchment','name_node','name_link']]
   upstream_nodes = upstream_nodes.rename(columns=lambda c:c[5:])
   c2n= upstream_nodes.set_index('catchment')['node'].to_dict()
+  if 'dummy-catchment' in c2n:
+    c2n.pop('dummy-catchment')
+
   l2usn= upstream_nodes.set_index('link')['node'].to_dict()
 
   outlets = network.outlet_nodes()
