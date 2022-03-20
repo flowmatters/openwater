@@ -1106,6 +1106,8 @@ def node_lookups(network_fn):
 
   us_catchment_to_node = upstream_links.set_index('id').loc[upstream_catchments.link]['to_node']
   c2outlet = dict(zip(upstream_catchments.name,[outlet_lookup[n] for n in us_catchment_to_node]))
+  if 'dummy-catchment' in c2outlet:
+    c2outlet.pop('dummy-catchment')
 
   upstream_links = upstream_links[~upstream_links.id.isin(upstream_catchments.link)]
   l2outlet = dict(zip(upstream_links.name,[outlet_lookup[n] for n in upstream_links.to_node]))
