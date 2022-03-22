@@ -60,21 +60,27 @@ class OWTemplate(object):
     self.inputs = []
     self.outputs = []
 
-  def define_input(self,node,name=None,alias=None,**kwargs):
-    if name is None:
-      # Would be nice to have a short hand to define every input of this
-      # node as an input to the graph (and similarly every output of a node
-      # as an output of the graph
-      # But the node currently stores the model name)
-      raise InvalidFluxException(node,'(no name provided)','input')
-
-    if not node.has_input(name):
-        raise InvalidFluxException(node,name,'input')
+  def define_input(self,node=None,name=None,alias=None,connections=None,**kwargs):
+    if connections is None:
+      connections = [
+        (node,name)
+      ]
 
     if alias is None:
-      alias = name
+      alias = connections[0][1]
 
-    self.inputs.append((node,name,alias,kwargs))
+    for con_node, con_name in connections:
+      if con_name is None:
+        # Would be nice to have a short hand to define every input of this
+        # node as an input to the graph (and similarly every output of a node
+        # as an output of the graph
+        # But the node currently stores the model name)
+        raise InvalidFluxException(node,'(no name provided)','input')
+
+      if not con_node.has_input(con_name):
+          raise InvalidFluxException(con_node,con_name,'input')
+
+      self.inputs.append((con_node,con_name,alias,kwargs))
 
   def define_output(self,node,name=None,alias=None,**kwargs):
     if not node.has_output(name):
@@ -115,7 +121,8 @@ class OWTemplate(object):
         return True
     return False
 
-  def match_labelled_flux(self,fluxes,flux_name,flux_tags,exclude_tags):
+  def match_labelled_flux(self,fluxes,flux_name,flux_tags,exclude_tags,return_all=False):
+      result = []
       required_tags = set(flux_tags.keys())
       for node,name,alias,stored_tags in fluxes:
         if flux_name != alias:
@@ -132,7 +139,12 @@ class OWTemplate(object):
         if skip: continue
 
         if tags_match(flux_tags,stored_tags):
-          return node, name
+          if return_all:
+            result.append((node,name))
+          else:
+            return node, name
+      if return_all:
+        return result
       return None,None
 
   def make_link(self,output_name,input_name,
@@ -147,14 +159,16 @@ class OWTemplate(object):
             raise Exception('%s: No matching output for %s, with tags %s. Have %d outputs'%(link_txt,new_output_name or output_name,str(from_tags),n_outputs))
         output_name = new_output_name
     if to_node is None:
-        to_node, new_input_name = self.match_labelled_flux(
-            self.inputs,input_name,to_tags,to_exclude_tags)
+        destinations = self.match_labelled_flux(
+            self.inputs,input_name,to_tags,to_exclude_tags,return_all=True)
+        # to_node, new_input_name
+        if not len(destinations): #to_node is None or new_input_name is None:
+            raise Exception('%s: No matching input for %s, with tags %s'%(link_txt,input_name,str(to_tags)))
+        # input_name = new_input_name
+    else:
+        destinations = [(to_node,input_name)]
 
-        if to_node is None or new_input_name is None:
-            raise Exception('%s: No matching input for %s, with tags %s'%(link_txt,new_input_name or input_name,str(to_tags)))
-        input_name = new_input_name
-
-    return OWLink(from_node,output_name,to_node,input_name)
+    return [OWLink(from_node,output_name,dest_node,dest_input) for dest_node, dest_input in destinations]
 
   def flatten(self):
     '''
