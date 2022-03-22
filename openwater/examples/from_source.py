@@ -1025,18 +1025,20 @@ def build_inflow_node_template(template:templating.OWTemplate,constituents: list
 
 def build_loss_node_template(template:templating.OWTemplate,constituents: list,**kwargs):
     loss = template.add_node(n.RatingCurvePartition,process='loss',**kwargs)
-    template.define_input(loss,'input',UPSTREAM_FLOW_FLUX,**kwargs)
-    template.define_output(loss,'output1',DOWNSTREAM_FLOW_FLUX,**kwargs)
 
     prop = template.add_node(n.ComputeProportion,process='loss_proportion',**kwargs)
-    template.add_link(OWLink(loss,'output2',prop,'numerator'))
+    template.add_link(OWLink(loss,'output1',prop,'numerator'))
+
+    template.define_input(connections=[(loss,'input'),(prop,'denominator')],alias=UPSTREAM_FLOW_FLUX,**kwargs)
+    template.define_output(loss,'output2',DOWNSTREAM_FLOW_FLUX,**kwargs)
+
     # template.add_link(OWLink(loss,'output2',prop,'numerator'))
     # denominator is? inflow - ie an overloaded input? 
     for con in constituents:
         con_ext = template.add_node(n.VariablePartition,process='constituent_loss',constituent=con,**kwargs)
         template.add_link(OWLink(prop,'proportion',con_ext,'fraction'))
         template.define_input(con_ext,'input',UPSTREAM_LOAD_FLUX,constituent=con,**kwargs)
-        template.define_output(con_ext,'output1',DOWNSTREAM_LOAD_FLUX,constituent=con,**kwargs)
+        template.define_output(con_ext,'output2',DOWNSTREAM_LOAD_FLUX,constituent=con,**kwargs)
         #TODO Or output2?
 
 def storage_template_builder(constituent_model_map=None):
