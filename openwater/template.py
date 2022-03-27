@@ -942,6 +942,12 @@ class ModelFile(object):
           self.time_period = pd.DatetimeIndex([pd.Timestamp.fromisoformat(d) for d in timesteps])
         self._parameteriser = None
 
+    def __enter__(self):
+      return self
+
+    def __exit__(self, type, value, traceback):
+      self.close()
+
     def _matches(self,model,**tags):
         model_dims = [d.decode() for d in self._h5f['MODELS'][model]['map'].attrs['DIMS']]
         # print(model_dims)
