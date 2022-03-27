@@ -705,6 +705,7 @@ class FileBasedModelConfigurationProvider(object):
         self.climate_patterns = climate_patterns
         self.time_period = time_period
 
+        self.inflow_fill = 0.0
         nw = self.network().as_dataframe()
         catchments = nw[nw.feature_type=='catchment']
         links = nw[nw.feature_type=='link']
@@ -843,6 +844,8 @@ class FileBasedModelConfigurationProvider(object):
         all_data = pd.DataFrame({make_col_name(fn):df[df.columns[0]] \
             for fn,df in zip(files,all_data)})
         all_data = all_data.reindex(time_period)
+        if self.inflow_fill is not None:
+          all_data = all_data.fillna(self.inflow_fill)
         return all_data
 
     def inflow_loads(self,inflows):
@@ -872,6 +875,9 @@ class FileBasedModelConfigurationProvider(object):
             inflow_ts = inflows[node_name]
             ### TODO: UNITS!
             loads[col] *= inflow_ts
+        if self.inflow_fill is not None:
+          loads = loads.fillna(self.inflow_fill)
+
         return loads
 
 
