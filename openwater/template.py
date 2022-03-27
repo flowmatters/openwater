@@ -995,6 +995,9 @@ class ModelFile(object):
         result = param_df.set_index(df.index)
         return result
 
+    def dims_for_model(self,model):
+      return [d.decode() for d in self._h5f['MODELS'][model]['map'].attrs['DIMS']]
+
     def parameters(self,model,**tags):
         return _tabulate_model_scalars_from_file(self._h5f,
                                                  model,
