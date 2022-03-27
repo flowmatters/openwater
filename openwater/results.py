@@ -2,6 +2,7 @@
 from typing import List
 from . import nodes as node_types
 import pandas as pd
+from glob import glob
 
 temporal_agg_fns = {
   'sum':lambda a: a.sum(axis=1),
@@ -283,3 +284,14 @@ class OpenwaterSplitResults(object):
   def dims_for_model(self,model) -> List[str]:
     return self._results[0].dims_for_model(model)
 
+def open_split_results(model_fn,results_pattern,input_pattern=None,time_period=None):
+  results_filenames = list(sorted(glob(results_pattern)))
+  if input_pattern is not None:
+    inputs_filenames = list(sorted(glob(input_pattern)))
+    assert len(inputs_filenames) == len(results_filenames)
+  else:
+    inputs_filenames = None
+
+  individual_result_objects = [OpenwaterResults(model_fn,res_file,time_period=None,inputs=None if inputs_filenames is None else inputs_filenames[ix])\
+                               for ix,res_file in enumerate(results_filenames)]
+  return OpenwaterSplitResults(individual_result_objects)
