@@ -64,45 +64,59 @@ def split_model(orig_model: str,
                 split_ts: int=1,
                 input_windows: Sequence[int]=None):
 
-  input_f = h5py.File(orig_model,'r')
-  structure_f = h5py.File(structure,'w')
-  input_f.copy('DIMENSIONS',structure_f)
-  input_f.copy('LINKS',structure_f)
-  input_f.copy('META',structure_f)
+  input_f = structure_f = params_models = init_states_models = None
+  inputs_models = []
 
-  structure_models = structure_f.create_group('MODELS')
-  for model in input_f['MODELS'].keys():
-    dest_grp = structure_models.create_group(model)
+  try:
+    input_f = h5py.File(orig_model,'r')
+    structure_f = h5py.File(structure,'w')
+    input_f.copy('DIMENSIONS',structure_f)
+    input_f.copy('LINKS',structure_f)
+    input_f.copy('META',structure_f)
 
-  params_models = create_or_reuse_model_group(parameters,structure_models)
-  init_states_models = create_or_reuse_model_group(init_states,structure_models)
+    structure_models = structure_f.create_group('MODELS')
+    for model in input_f['MODELS'].keys():
+      dest_grp = structure_models.create_group(model)
 
-  input_windows = split_time_series(input_f['MODELS'],split_ts,input_windows)
+    params_models = create_or_reuse_model_group(parameters,structure_models)
+    init_states_models = create_or_reuse_model_group(init_states,structure_models)
 
-  if len(input_windows)>1:
-    inputs_models = [create_or_reuse_model_group(inputs.replace('.h5',f'-{ix}.h5'),structure_models) for ix,_ in enumerate(input_windows)]
-  else:
-    inputs_models = [create_or_reuse_model_group(inputs,structure_models)]
+    input_windows = split_time_series(input_f['MODELS'],split_ts,input_windows)
 
-  for model, grp in input_f['MODELS'].items():
-    grp.copy('batches',structure_models[model])
-    grp.copy('map',structure_models[model])
+    if len(input_windows)>1:
+      inputs_models = [create_or_reuse_model_group(inputs.replace('.h5',f'-{ix}.h5'),structure_models) for ix,_ in enumerate(input_windows)]
+    else:
+      inputs_models = [create_or_reuse_model_group(inputs,structure_models)]
 
-    if 'parameters' in grp:
-      grp.copy('parameters',params_models[model])
+    for model, grp in input_f['MODELS'].items():
+      grp.copy('batches',structure_models[model])
+      grp.copy('map',structure_models[model])
 
-    if 'states' in grp:
-      grp.copy('states',init_states_models[model])
+      if 'parameters' in grp:
+        grp.copy('parameters',params_models[model])
 
-    if 'inputs' not in grp:
-      print(f'No inputs recorded for {model}. Skipping')
-      continue
+      if 'states' in grp:
+        grp.copy('states',init_states_models[model])
 
-    print(f'Copying inputs for {model}')
-    for ix, ((start_idx,end_idx),ts_dest_grp) in enumerate(zip(input_windows,inputs_models)):
-      print(f'Input window {ix}: [{start_idx}:{end_idx}]')
-      ts_dest_grp[model]['inputs'] = grp['inputs'][:,:,start_idx:end_idx]
+      if 'inputs' not in grp:
+        print(f'No inputs recorded for {model}. Skipping')
+        continue
 
+      print(f'Copying inputs for {model}')
+      for ix, ((start_idx,end_idx),ts_dest_grp) in enumerate(zip(input_windows,inputs_models)):
+        print(f'Input window {ix}: [{start_idx}:{end_idx}]')
+        ts_dest_grp[model]['inputs'] = grp['inputs'][:,:,start_idx:end_idx]
+  finally:
+    for fp in [input_f,structure_f,params_models,init_states_models]+inputs_models:
+      if fp is None:
+        continue
+
+      if hasattr(fp,'close'):
+        print(f'Closing {fp.filename}')
+        fp.close()
+      else:
+        print(f'Closing {fp.file.filename}')
+        fp.file.close()
 
 def run_split_model(structure,params=None,init_states=None,inputs=None,dests=None,final_states=None,**kwargs):
   params = params or structure
