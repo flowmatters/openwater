@@ -375,24 +375,27 @@ def build_catchment_graph(model_structure,network,progress=print,custom_processi
 
   linkages = make_network_topology(catchments,interesting_nodes,links)
   for ix, (from_link,to_link) in enumerate(linkages):
-    flow_link = master_template.make_link(
+    flow_links = master_template.make_link(
             DOWNSTREAM_FLOW_FLUX,
             UPSTREAM_FLOW_FLUX,
             from_tags=from_link,
             to_tags=to_link,
             from_exclude_tags=['constituent'],
             to_exclude_tags=['constituent'])
-    master_template.add_link(flow_link)
+    for l in flow_links:
+      master_template.add_link(l)
 
     for con in model_structure.constituents:
       con_from_link = dict(**from_link,constituent=con)
       con_to_link = dict(**to_link,constituent=con)
-      con_link = master_template.make_link(
+      con_links = master_template.make_link(
         DOWNSTREAM_LOAD_FLUX,
         UPSTREAM_LOAD_FLUX,
         from_tags=con_from_link,
         to_tags=con_to_link)
-      master_template.add_link(con_link)
+
+      for l in con_links:
+        master_template.add_link(l)
 
   g = None
   g = templating.template_to_graph(g,master_template)
