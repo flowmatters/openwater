@@ -382,7 +382,7 @@ def build_catchment_graph(model_structure,network,progress=print,custom_processi
             from_tags=from_link,
             to_tags=to_link,
             from_exclude_tags=['constituent'],
-            to_exclude_tags=['constituent'])
+            to_exclude_tags=[])#['constituent'])
     for l in flow_links:
       master_template.add_link(l)
 
@@ -1069,7 +1069,9 @@ def storage_template_builder(constituent_model_map=None):
 
     storage = template.add_node(n.Storage,process='storage',**kwargs)
     template.define_output(storage,'outflow',DOWNSTREAM_FLOW_FLUX,**kwargs)
-    template.define_input(storage,'inflow',UPSTREAM_FLOW_FLUX,**kwargs)
+    inflow_connections = [
+      (storage,'inflow')
+    ]
 
     for con in constituents:
       constituent_model = get_model_for_provider(
@@ -1078,13 +1080,23 @@ def storage_template_builder(constituent_model_map=None):
                                            process='storage-constituents',
                                            constituent=con,
                                            **kwargs)
+      if has_input(constituent_model,'inflow'):
+        inflow_connections.append((constituent_node,'inflow'))
+
       template.define_input(constituent_node,'inflowLoad',UPSTREAM_LOAD_FLUX,constituent=con,**kwargs)
       template.define_output(constituent_node,'outflowLoad',DOWNSTREAM_LOAD_FLUX,constituent=con,**kwargs)
 
       template.add_link(OWLink(storage,'volume',constituent_node,'storage'))
       template.add_link(OWLink(storage,'outflow',constituent_node,'outflow'))
 
+    template.define_input(connections=inflow_connections,alias=UPSTREAM_FLOW_FLUX,**kwargs)
+
   return build_storage_node_template
+
+def has_input(model,the_input):
+  if isinstance(model,str):
+    model = getattr(n,model)
+  return the_input in model.description['Inputs']
 
 def _rename_storage_variable(col):
     SUFFIXES=['InMetresPerSecond']
