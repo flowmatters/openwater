@@ -520,10 +520,29 @@ def common_period(*dataframes):
 def all_results_files(pattern='all-models'):
   return sorted(list(glob('model-comparison-summary-%s-2*.csv'%pattern)))
 
+def read_results(fn):
+  dtypes={
+    'level_0':'i',
+    'index':'str',
+    'catchment':'str',
+    'cgu':'string',
+    'constituent':'string',
+    'ssquares':'f',
+    'sum-ow':'f',
+    'sum-orig':'f',
+    'r-squared':'f',
+    'delta':'f',
+    'component':'string',
+    'regulated':'string',
+    'model':'string',
+    'pc-err':'f'
+  }
+  return pd.read_csv(fn,index_col=0,dtype=dtypes)
+
 def latest_results(pattern='all-models'):
   latest = all_results_files(pattern)[-1]
   print('Reading from %s'%latest)
-  return pd.read_csv(latest,index_col=0)
+  return read_results(latest)
 
 def get_problematic_rows(df,pc_err_threshold=PC_ERR_THRESHOLD,ssq_threshold=SSQ_THRESHOLD,r_sqd_threshold=0.99):
     df = df[(df['sum-orig']>=SUM_THRESHOLD)]
