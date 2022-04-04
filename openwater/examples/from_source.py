@@ -571,6 +571,8 @@ def demand_parameteriser(builder):
     network = builder.network()
     nodes = network['features'].find_by_feature_type('node')
     water_users = nodes.find_by_icon('/resources/WaterUserNodeModel')
+
+    extraction_params = builder._load_csv('extraction_point_params')
     demands = pd.DataFrame()
     for wu in water_users:
         wu_name = wu['properties']['name']
@@ -579,8 +581,11 @@ def demand_parameteriser(builder):
         extraction_node_id = us_links[0]['properties']['from_node']
         extraction_node = nodes.find_by_id(extraction_node_id)[0]
         extraction_node_name = extraction_node['properties']['name']
-        print(wu_name,extraction_node_name)
-
+        is_extractive = \
+          extraction_params[extraction_params.NetworkElement==extraction_node_name].IsExtractive.iloc[0]
+        if not is_extractive:
+          print(f'Skipping non-extractive node: {extraction_node_name}')
+          continue
         demand = builder._load_csv(f'timeseries-demand-{wu_name}')
 
         if demand is None:
