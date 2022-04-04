@@ -1019,17 +1019,18 @@ class SourceTimeSeriesTranslator(object):
 
 def build_extraction_node_template(template,constituents,**kwargs):
     demand = template.add_node(n.PartitionDemand,process='demand',**kwargs)
-    template.define_input(demand,'input',UPSTREAM_FLOW_FLUX,**kwargs)
     template.define_output(demand,'outflow',DOWNSTREAM_FLOW_FLUX,**kwargs)
-
 
     prop = template.add_node(n.ComputeProportion,process='demand_proportion',**kwargs)
     template.add_link(OWLink(demand,'extraction',prop,'numerator'))
+    template.define_input(connections=[(demand,'input'),(prop,'denominator')],alias=UPSTREAM_FLOW_FLUX,**kwargs)
+    # denominator is??? the demand (ie an input timeseries?)
+
     for con in constituents:
         con_ext = template.add_node(n.VariablePartition,process='constituent_extraction',constituent=con,**kwargs)
         template.add_link(OWLink(prop,'proportion',con_ext,'fraction'))
         template.define_input(con_ext,'input',UPSTREAM_LOAD_FLUX,constituent=con,**kwargs)
-        template.define_output(con_ext,'output1',DOWNSTREAM_LOAD_FLUX,constituent=con,**kwargs)
+        template.define_output(con_ext,'output2',DOWNSTREAM_LOAD_FLUX,constituent=con,**kwargs)
         #TODO Or output2?
 
 def build_inflow_node_template(template:templating.OWTemplate,constituents: list,**kwargs):
