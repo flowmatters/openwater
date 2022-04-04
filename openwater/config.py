@@ -46,6 +46,9 @@ class Parameteriser(object):
         self._parameterisers = []
 
     def append(self,parameteriser):
+        if parameteriser is None:
+          return
+
         self._parameterisers.append(parameteriser)
 
     def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
