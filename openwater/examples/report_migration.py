@@ -1,5 +1,5 @@
 import sys
-from .catchment_model_comparison import all_results_files, latest_results, proportion_bad
+from .catchment_model_comparison import all_results_files, latest_results, proportion_bad,read_results
 from openwater.discovery import discover, set_exe_path
 import pandas as pd
 
@@ -13,11 +13,12 @@ NEXT_ELEMENT={
 }
 COMPONENT_PRIORITY_ORDER=['Total_Flow','Generation','Routing','Transport']
 
-def report_df(df,label):
-  nz_bad = df[df.bad!=0]
-  if not len(nz_bad):return
+def report_df(df,label,always=False):
+  if not always:
+    df = df[df.bad!=0]
+  if not len(df) and not always:return
   print(f'\n\n================== {label} ==================')
-  print(nz_bad)
+  print(df)
 
 if __name__ == '__main__':
   pd.options.display.max_rows = None
@@ -35,7 +36,7 @@ if __name__ == '__main__':
   LATEST_RESULTS_FN=all_results[-1]
   print(f'Comparing {LATEST_RESULTS_FN} to {REFERENCE_RESULTS_FN}')
 
-  ref_results = pd.read_csv(REFERENCE_RESULTS_FN,index_col=0)
+  ref_results = read_results(REFERENCE_RESULTS_FN)
   all_results = latest_results(MODEL)
 
   def pb_delta(*args,**kwargs):
@@ -54,12 +55,19 @@ if __name__ == '__main__':
   def report_delta(*args,**kwargs):
     report_df(pb_delta(*args,**kwargs),'Change ' + make_label(*args,**kwargs))
 
-  def report(*args,**kwargs):
-    report_df(proportion_bad(all_results,*args,**kwargs),'Proportion bad ' + make_label(*args,**kwargs))
+  def report(always=False,*args,**kwargs):
+    report_df(proportion_bad(all_results,*args,**kwargs),'Proportion bad ' + make_label(*args,**kwargs),always=always)
 
+  if MODEL=='all-models':
+    report(True,['model'])
+    report_delta(['model'])
 
-  report(DEFAULT_ELEMENTS)
+  report(True,DEFAULT_ELEMENTS)
   report_delta(DEFAULT_ELEMENTS)
+
+  if MODEL=='all-models':
+    report(True,['model']+DEFAULT_ELEMENTS)
+    report_delta(['model']+DEFAULT_ELEMENTS)
 
   bad_results = proportion_bad(all_results,DEFAULT_ELEMENTS)
   bad_components = list(bad_results[bad_results.bad>0].index)
@@ -67,7 +75,7 @@ if __name__ == '__main__':
     if not c in bad_components:
       continue
     constraint = {'component':c}
-    report(NEXT_ELEMENT[c],component=c)
+    report(False,NEXT_ELEMENT[c],component=c)
     report_delta(NEXT_ELEMENT[c],component=c)
 
 
