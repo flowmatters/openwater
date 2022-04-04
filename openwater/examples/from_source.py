@@ -596,8 +596,11 @@ def demand_parameteriser(builder):
 
             demand = np.array(pattern_demand.volume)
             month_ts = builder.time_period.month-1
-            demand = demand[month_ts]
-            demand = pd.DataFrame({'TSO':demand},index=builder.time_period)
+            monthly_demand_m3 = demand[month_ts]
+            monthly_demand_m3 = pd.Series(monthly_demand_m3,index=builder.time_period)
+            daily_demand_m3 = monthly_demand_m3 / monthly_demand_m3.index.days_in_month
+            daily_demand_m3s = daily_demand_m3 * PER_DAY_TO_PER_SECOND
+            demand = pd.DataFrame({'TSO':daily_demand_m3s})
         else:
             demand = demand.reindex(builder.time_period)
             if 'TSO' not in demand.columns:
