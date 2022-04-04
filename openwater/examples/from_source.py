@@ -152,7 +152,7 @@ def merge_storage_tables(directory,fsvs,fsls):
     result = {}
     for node,node_outlets in outlets.items():
         lva = read_csv(f'storage_lva_{node}')
-        lva = lva.drop_duplicates(subset='volume',keep='last')
+        lva = lva.drop_duplicates(subset='volume',keep='last').reset_index()
         if min(lva.volume) > 0:
             logger.warning('No zero row in storage LVA: %s'%node)
             lva = lva.append({'volume':0,'area':0,'level':0},ignore_index=True)
@@ -162,7 +162,7 @@ def merge_storage_tables(directory,fsvs,fsls):
 
         lva = lva.set_index('volume')
         if fsvs[node] not in lva.index:
-            lva.loc[fsvs[node],'level'] = fsls[node]
+            lva.loc[fsvs[node],'level'] = round(fsls[node],3)
         lva = lva.sort_index()
         lva = lva.interpolate()
         lva = lva.reset_index().set_index('level')
@@ -176,7 +176,8 @@ def merge_storage_tables(directory,fsvs,fsls):
             release_curves.append(release_curve)
         levels = sorted(levels)
         release_curves = [tbl.reindex(levels).interpolate() for tbl in release_curves]
-        lva = lva.reindex(levels).interpolate()
+        lva = lva.reindex(levels)
+        lva = lva.interpolate()
 
         node_table = reduce(lambda a,b: a+b,release_curves)
         node_table['volumes'] = lva.volume
