@@ -543,15 +543,15 @@ def storage_parameteriser(builder):
                                                 complete=True))
 
     storage_climate = builder._load_time_series_csv('storage_climate')
-    if len(storage_climate):
-        storage_climate = storage_climate.rename(columns=_rename_storage_variable)
-
-        storage_climate_inputs = DataframeInputs()
-        storage_climate_inputs.inputter(storage_climate,'rainfall','${node_name} Rainfall',model='Storage')
-        storage_climate_inputs.inputter(storage_climate,'pet','${node_name} Evaporation',model='Storage')
-        p.nested.append(storage_climate_inputs)
-    else:
+    if not len(storage_climate.dropna()):
         raise Exception('NO storage climate')
+
+    storage_climate = storage_climate.rename(columns=_rename_storage_variable)
+
+    storage_climate_inputs = DataframeInputs()
+    storage_climate_inputs.inputter(storage_climate,'rainfall','${node_name} Rainfall',model='Storage')
+    storage_climate_inputs.inputter(storage_climate,'pet','${node_name} Evaporation',model='Storage')
+    p.nested.append(storage_climate_inputs)
 
     storage_fsl_inputs = DataframeInputs()
     storage_target_cap = pd.DataFrame()
