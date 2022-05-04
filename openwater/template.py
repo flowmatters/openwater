@@ -1048,7 +1048,7 @@ class ModelFile(object):
         linkages.dest_var = [descriptions[m]['Inputs'][v] for m,v in zip(linkages.dest_model,linkages.dest_var)]
         return linkages
 
-    def links_between(self,dest_mod=None,dest_var=None,src_mod=None,src_var=None,src_tags={},dest_tags={},annotate=True):
+    def links_between(self,dest_mod=None,dest_var=None,src_mod=None,src_var=None,src_tags={},dest_tags={},annotate=True,**kwargs):
         """
         Identify the links between particular model graph nodes.
 
@@ -1072,12 +1072,14 @@ class ModelFile(object):
           Only show links to graph nodes with all these tags
         annotate: boolean
           Add source node and destination node tags as columns to the data frame
+        kwargs:
+          Only show links between graph nodes with all of these tags
         """
         linkages = self.link_table()
 
         if dest_mod:
             linkages = linkages[linkages.dest_model==dest_mod]
-            nodes = self.nodes_matching(dest_mod,**dest_tags)
+            nodes = self.nodes_matching(dest_mod,**dest_tags,**kwargs)
             linkages = linkages[linkages.dest_node.isin(nodes._run_idx)]
 
         if dest_var:
@@ -1085,7 +1087,7 @@ class ModelFile(object):
 
         if src_mod:
             linkages = linkages[linkages.src_model==src_mod]
-            nodes = self.nodes_matching(src_mod,**src_tags)
+            nodes = self.nodes_matching(src_mod,**src_tags,**kwargs)
             linkages = linkages[linkages.src_node.isin(nodes._run_idx)]
 
         if src_var:
