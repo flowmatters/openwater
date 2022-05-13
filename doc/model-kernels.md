@@ -10,7 +10,7 @@ At this stage, the model kernels are written in Go, but it is anticipated that w
 
 ## Scope and scale of model kernels
 
-Model kernels implement an algorithm that can be applied at a single node of an Openwater model graph. The same algorithm may be used multiple, or many, times in a single graph, typically to represent the same process at a different location, and having input timeseries and parameters vary between those locations.
+Model kernels implement an algorithm that can be applied at a single node of an Openwater model graph. The same algorithm may be used for multiple, or many, nodes in a single graph, typically to represent the same process at a different location, and having input timeseries and parameters vary between those locations.
 
 ## Model kernel 'contract'
 
@@ -21,7 +21,7 @@ There are two versions of this component model 'contract':
 * The _generic contract_, which gives the software developer the most flexibility in terms of implementation approaches, including potentially implementing data-parallel model kernels and/or implementing in languages other than Go, and
 * The _simplified contract_, in which the software developer implements a function, representing the execution of the algorithm at a single 'node', and accompanying structured documentation allowing an Openwater utility program to generate the more generic contract.
 
-Presently, most of the component models, within the core Openwater library, are implemented using the simplified contract. 
+Presently, most of the component models, within the core Openwater library, are implemented using the simplified contract.
 
 The following sections describe the requirements of the contract, with notes identifying differences between generic contract and the simplified contract.
 
@@ -38,22 +38,22 @@ For each of these variables, (ie for each model parameter, model state, etc), th
 
 A component model kernel can describe a flexible number of variables, such as a changing number of parameters or states, based on the value of some other parameter. For example, a component model kernel might describe a parameter `n`, the value of which might determine the number of entries in a lookup table, represented as parameters `level` and `volume`, where each of `level` and `volume` would consequently be arrays of length `n`.
 
-In the simplified contract, this documentation is provided as a comment, in the Go code, starting with the marker `/*OW-SPEC`, and describing a the inputs, states, parameters and outputers. See [example](https://github.com/flowmatters/openwater-core/blob/master/models/rr/simhyd.go#:~:text=/*OW-SPEC,*/). This description is used to generate code describing the model in a way that is queryable at runtime, including from calling Python code.
+In the simplified contract, this documentation is provided as a comment, in the Go code, starting with the marker `/*OW-SPEC`, and describing the inputs, states, parameters and outputers. See [example](https://github.com/flowmatters/openwater-core/blob/master/models/rr/simhyd.go#:~:text=/*OW-SPEC,*/). This description is used to generate code describing the model in a way that is queryable at runtime, including from calling Python code.
 
 ## Full or partial time periods
 
-Component model kernels are expected to accept, as a single invocation, an arbitrary number of timesteps, ranging from a single time step, to all timesteps in the simulation or somewhere in between. 
+Component model kernels are expected to accept, as a single model invocation, an arbitrary number of timesteps, ranging from a single time step, to all timesteps in the simulation or somewhere in between.
 
 This means that:
 
 1. Component model kernels are responsible for their own, internal timestepping, informed by the timesteps in the input timeseries,
-2. All model states must be externalised and desribed in the structured documentation, with the component model kernel accepting initial values for all states and subsequently returning final values of all states.
+2. All model states must be externalised, made available to the framework, and, in the case of the simplified contract, described in the structured documentation, with the component model kernel accepting initial values for all states and subsequently returning final values of all states.
 
 Furthermore, the Openwater system has no concept of global simulation 'time' (ie current day in the simulation), and all input timeseries are provided as plain arrays. Individual component model kernels may compute and track time based on model parameters, or, more typically, the model graph may include a single `DateGenerator` model node, which can be used to pass date components to invidual model components as input timeseries.
 
 ## Data Parallel
 
-Component model kernels are expected to accept, as a single invocation an arbitrary number of independent graph nodes, using the same algorithm.
+When using the generic contract, component model kernels are expected to accept, as a single model invocation, an arbitrary number of independent graph nodes, using the same algorithm.
 
 Thus, a single invocation of a model kernel may be for any of the following combinations of timesteps and graph nodes:
 
@@ -73,7 +73,7 @@ This leads to pairs of files, with one representing the model, implemented accor
 Component model kernels following the _simplified contract_ require two key items:
 
 1. A function (currently a Go function) implementing the algorithm a single model graph node, for an arbitrary number of timesteps, and
-2. Structured documentation, in YAML format, describing the inputs, parameters, states and ouputs, along with information identifying the function to be called.
+2. Structured documentation, in [YAML](https://yaml.org/) format, describing the inputs, parameters, states and ouputs, along with information identifying the function to be called.
 
 The YAML documentation should provide a model name (which does not need to relate to the function name). So, in the following example, the YAML is describing a model called `EmcDwc`.
 
@@ -134,9 +134,37 @@ func emcDWC(
 
 Inputs are provided as 1D arrays of 64 bit floating point numbers, using an Openwater specific array type (`data.ND1Float64`). Outputs are similarly implemented as 1D arrays, and these are passed, as parameters, to the model function, to be populated within the implementation.
 
+## Generic contract implementation
+
+The generic interface is represented by the `TimeSteppingModel` interface in [`openwater-core`](https://github.com/flowmatters/openwater-core/blob/master/sim/runnable.go). At present, this involves implementing a Go type, with the following methods:
+
+```go
+type TimeSteppingModel interface {
+	Description() ModelDescription
+
+	InitialiseDimensions(dims []int)
+	FindDimensions(params data.ND2Float64) []int
+	ApplyParameters(params data.ND2Float64)
+	InitialiseStates(n int) data.ND2Float64
+	Run(inputs data.ND3Float64, states data.ND2Float64, outputs data.ND3Float64)
+}
+```
+
+An instance of your model type will be used for simulating over an arbitrary number of model nodes (with independent parameters and inputs), for an arbitrary number of timesteps.
+
+The type must implement a `Description()` method, returning a `ModelDescription` containing essential metadata to allow Openwater to work with the model. The description contains information about the number and names of model parameters, states, inputs and outputs (See [link](https://github.com/flowmatters/openwater-core/blob/master/sim/runnable.go)).
+
+The type should store any parameters as fields on the type, having been initialed, by the framework, using `ApplyParameters`. These will be supplied as a two dimensional array of 64 bit floating point numbers (`data.ND2Float64`), with the first dimension representing the parameter, in the order specified in the model description, and the second dimension representing the instance, or 'node', when the model is invoked for multiple nodes at once.
+
+The `Run()` method, of the type, should implement the model algorithm, for an arbitrary number of nodes (but consistent with the number set previously, by the framework, when initialising parameters), and an arbitrary number of timesteps. The `Run()` method accepts:
+
+* `inputs`: as a 3D array (node x input x timestep)
+* `states`: as a 2D array, containing the initial states (node x state). Final states are returned via the same array.
+* `outputs`: as a 3D array (node x output x timestep)
+
 ## Registering Component Model Kernels with the framework
 
-Once implemented, a model needs to be registered with the Openwater library, in order to be available for use in model graph nodes. This is handled automatically when a component model kernel is implemented, using the _simplified contract_ and stored within one of the existing `model` subdirectories of the [`openwater-core`](https://github.com/flowmatters/openwater-core/tree/master/models) package.
+Once implemented, a model needs to be registered with the Openwater library, in order to be available for use in model graph nodes. This is handled automatically when a component model kernel is implemented using the _simplified contract_ and stored within one of the existing `model` subdirectories of the [`openwater-core`](https://github.com/flowmatters/openwater-core/tree/master/models) package.
 
 When implementing a component model kernel in a directory outside of the existing `models` subdirectory, it is necessary to ensure that the relevant directory is `import`ed, somewhere in the initialisation process of the relevant openwater-core executable program (eg `ow-sim`). This can happen through adding an entry to the `import` statement in [`init.go`](https://github.com/flowmatters/openwater-core/blob/master/models/init.go).
 
@@ -145,6 +173,8 @@ When implementing the generic contract, it is necessary to import the `sim` pack
 ```go
 sim.Catalog["EmcDwc"] = buildEmcDwc
 ```
+
+**Note:** Importantly, model kernels are directly compiled into each of the Openwater executable programs (`ow-sim`, `ow-inspect`, etc) and `libopenwater`. There is currently no 'plugin' mechanism that would allow a new model type to be loaded at runtime.
 
 # Model meta types
 
