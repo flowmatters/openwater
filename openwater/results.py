@@ -2,6 +2,7 @@
 from typing import List
 from . import nodes as node_types
 import pandas as pd
+import numpy as np
 from glob import glob
 
 temporal_agg_fns = {
@@ -150,6 +151,28 @@ class OpenwaterResults(object):
       raise Exception(f'No matching model nodes for model {model}, with column tag {columns} and constraint tags {kwargs}.')
 
     return pd.DataFrame(all_sequences,index=self.time_period)
+
+  def all_time_series(self,model,variable,**kwargs) -> pd.DataFrame:
+    '''
+    Return a table (DataFrame) of time series results from the model with multi-level columns representing all tags for the model
+    '''
+    dim_names, dims, run_map, slices, data = self._retrieve_data(model,variable,**kwargs)
+    r = {}
+    for run_map_coords in (zip(*np.where(run_map>-1))):
+        tags = tuple([dims[dn][ix] for dn,ix in zip(dim_names,run_map_coords)])
+        wanted = True
+        for k,v in kwargs.items():
+          if tags[dim_names.index(k)]!=v:
+            wanted = False
+            break
+        if not wanted:
+          continue
+
+        run_index = run_map[run_map_coords]
+        r[tags] = data[run_index,:]
+    r = pd.DataFrame(r,index=self.time_period)
+    r.columns.set_names(dim_names,inplace=True)
+    return r
 
   def table(self,model,variable:str,rows:str,columns:str,temporal_aggregator:str='mean',aggregator:str=None,**kwargs) -> pd.DataFrame:
     '''
