@@ -85,6 +85,9 @@ class DataframeInputs(object):
     
     def inputter(self,df,input_name,col_format,model=None,**kwargs):
         assert df is not None
+        if not len(df) or not len(df.columns):
+            logger.warning('Empty dataframe provided for input %s with column format %s',input_name,col_format)
+            return
 
         if not input_name in self._inputs:
             self._inputs[input_name] = []
