@@ -88,9 +88,9 @@ class OpenwaterResults(object):
         return model.name
     return model
 
-  def _retrieve_data(self,model,variable,**kwargs):
+  def _retrieve_data(self,model,model_variable,**kwargs):
     model = self._model_name(model)
-    data = self._retrieve_all(model,variable)
+    data = self._retrieve_all(model,model_variable)
     dim_names, dims, run_map = self._map_runs(model)
     slices = [slice(None,None,None) for _ in dim_names]
     for dim_name,dim_value in kwargs.items():
@@ -152,11 +152,11 @@ class OpenwaterResults(object):
 
     return pd.DataFrame(all_sequences,index=self.time_period)
 
-  def all_time_series(self,model,variable,**kwargs) -> pd.DataFrame:
+  def all_time_series(self,model,model_variable,**kwargs) -> pd.DataFrame:
     '''
     Return a table (DataFrame) of time series results from the model with multi-level columns representing all tags for the model
     '''
-    dim_names, dims, run_map, slices, data = self._retrieve_data(model,variable,**kwargs)
+    dim_names, dims, run_map, slices, data = self._retrieve_data(model,model_variable,**kwargs)
     r = {}
     for run_map_coords in (zip(*np.where(run_map>-1))):
         tags = tuple([dims[dn][ix] for dn,ix in zip(dim_names,run_map_coords)])
