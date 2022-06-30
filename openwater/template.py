@@ -101,6 +101,26 @@ class OWTemplate(object):
     return self._has_flux(alias,self.inputs)
 
   def add_node(self,model_type=None,name=None,process=None,**tags):
+    '''
+    Add a node to the graph.
+
+    Parameters
+    ----------
+    model_type : str
+      The type of model to add.
+    name : str
+      The name of the node.
+    process : str
+      The process to which the node belongs.
+    tags : dict
+      A dictionary of tags to add to the node.
+
+    Returns
+    -------
+    node : Node
+      The node that was added.
+      This node object is used when creating links with `OWLink`
+    '''
     # if hasattr(node_or_name,'model_type'):
     #   self.nodes.append(node_or_name)
     # else:
@@ -112,6 +132,14 @@ class OWTemplate(object):
     return new_node
 
   def add_link(self,link):
+    '''
+    Add a link to the graph.
+
+    Parameters
+    ----------
+    link : OWLink
+      The link to add.
+    '''
     self.links.append(link)
 
   def add_conditional_link(self,from_node,from_output,to_node,possibly_inputs,model):
@@ -273,6 +301,9 @@ class OWNode(object):
     return name in self.model_type.description['Inputs']
 
 class OWLink(object):
+  '''
+  A directional link between to model graph nodes
+  '''
   def __init__(self,from_node,from_output,to_node,to_input):
     assert from_node is not None
     assert from_output is not None
