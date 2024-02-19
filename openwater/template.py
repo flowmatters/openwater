@@ -989,9 +989,10 @@ class ModelFile(object):
             if not value in self._dimensions[tag]:
                 return False
             lookup[tag] = self._dimensions[tag].index(value)
+
         idx = [lookup.get(d,slice(None,None)) for d in model_dims]
         # print(model,list(zip(model_dims,idx)))
-        return np.any(self._h5f['MODELS'][model]['map'][tuple(idx)] > 0)
+        return np.any(self._h5f['MODELS'][model]['map'][tuple(idx)] >= 0)
 
     def models_matching(self,**tags):
         result = []
