@@ -1166,6 +1166,29 @@ def _arg_parser():
   parser.add_argument('--run',help='Run the converted model',action='store_true',default=False)
   return parser
 
+def write_model_and_metadata(model_fn,model_obj,meta,network):
+  '''
+  Write a newly built catchment model to disk with associated metadata.
+
+  model_fn: str, with file extension (.h5)
+  model_obj: ModelFile or ModelGraph
+  meta: dict, with metadata
+  network: GeoDataFrame, with network topology
+
+  model_obj, meta and network typically from a catchment model builder
+  '''
+
+  if isinstance(model_obj,ModelFile):
+    model_obj.write()
+  else:
+    model_obj.write_model(model_fn)
+
+  json.dump(meta,open(model_fn.replace('.h5','.meta.json'),'w'),indent=2,default=str)
+
+  links,nodes,catchments = split_network(network)
+  links.to_file(model_fn.replace('.h5','.links.json'),driver='GeoJSON')
+  nodes.to_file(model_fn.replace('.h5','.nodes.json'),driver='GeoJSON')
+  catchments.to_file(model_fn.replace('.h5','.catchments.json'),driver='GeoJSON')
 
 def build_main(builder,model,timeperiod,openwater=None,existing=False,run=False,**kwargs):
   print('Build')
@@ -1188,17 +1211,7 @@ def build_main(builder,model,timeperiod,openwater=None,existing=False,run=False,
   time_period = pd.date_range(timeperiod[0],timeperiod[1],freq=kwargs.get('timestep','1d'))
   model_obj, meta, network = builder(source,existing=model_file)
 
-  if existing:
-    model_obj.write()
-  else:
-    model_obj.write_model(model_fn)
-
-  json.dump(meta,open(model_fn.replace('.h5','.meta.json'),'w'),indent=2,default=str)
-
-  links,nodes,catchments = split_network(network)
-  links.to_file(model_fn.replace('.h5','.links.json'),driver='GeoJSON')
-  nodes.to_file(model_fn.replace('.h5','.nodes.json'),driver='GeoJSON')
-  catchments.to_file(model_fn.replace('.h5','.catchments.json'),driver='GeoJSON')
+  write_model_and_metadata(model_fn,model_obj,meta,network)
 
   if run:
     model_obj.run(time_period,overwrite=True,verbose=True)
