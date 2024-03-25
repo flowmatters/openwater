@@ -15,7 +15,7 @@ def identify_models_to_keep(ow_mod, starting):
         if not mod in model_nodes_to_keep:
             return False
         return idx in model_nodes_to_keep[mod]
-    
+
     def keep_node(mod,idx):
         if not mod in model_nodes_to_keep:
             model_nodes_to_keep[mod] = set()
@@ -24,22 +24,26 @@ def identify_models_to_keep(ow_mod, starting):
             return
 
         model_nodes_to_keep[mod] = model_nodes_to_keep[mod].union({idx})
-    
-    to_visit = starting[:]
+    links['src'] = links['src_model'] + '/' + links['src_node'].astype('str')
+    links['dest'] = links['dest_model'] + '/' + links['dest_node'].astype('str')
+    to_visit = [f'{model}/{node}' for model,node in starting]
     while len(to_visit):
-        mod,idx = to_visit[0]
-        to_visit = to_visit[1:]
-    
-        if visited(mod,idx):
-            continue
-        
-        keep_node(mod,idx)
-    
-        links_to_mod = links[(links.dest_model==mod)&(links.dest_node==idx)]
+        new_nodes = []
+        for node_path in to_visit:
+          mod,idx = node_path.split('/')
+          idx = int(idx)
+          if visited(mod,idx):
+              continue
+
+          keep_node(mod,idx)
+          new_nodes.append(node_path)
+
+        links_to_mod = links[links.dest.isin(new_nodes)]
         links_to_keep = pd.concat([links_to_keep,links_to_mod])
-        to_visit += list(zip(links_to_mod.src_model,links_to_mod.src_node))
+        to_visit = list(links_to_mod.src)
 
     model_nodes_to_keep = {mt:sorted(nodes) for mt,nodes in model_nodes_to_keep.items()}
+    links_to_keep = links_to_keep.drop(columns=['src','dest'])
     return model_nodes_to_keep,links_to_keep
 
 def renumber_links(links,nodes):
@@ -86,7 +90,8 @@ def check_model_table_consistency(df):
 
 def clip(model,dest_fn,end_nodes):
   nodes_to_keep, links_to_keep = identify_models_to_keep(model,end_nodes)
-
+  node_count = sum([len(v) for v in nodes_to_keep.values()])
+  logging.info('Keeping %d nodes and %d links',node_count,len(links_to_keep))
   new_links = renumber_links(links_to_keep,nodes_to_keep)
 
   model_types = set.union(set(new_links.src_model),set(new_links.dest_model))
@@ -99,7 +104,7 @@ def clip(model,dest_fn,end_nodes):
       len_before = len(nodes)
       nodes = nodes[nodes._run_idx.isin(nodes_to_keep[m])]
       len_after = len(nodes)
-      print(f'Using %d of %d %s nodes'%(len_after,len_before,m))
+      logging.info(f'Using %d of %d %s nodes',len_after,len_before,m)
       new_model_maps[m] = nodes
 
   new_dims = {} 
@@ -120,6 +125,7 @@ def clip(model,dest_fn,end_nodes):
   model_grp = new_mod.create_group('MODELS')
   dim_grp = new_mod.create_group('DIMENSIONS')
 
+  logging.info('Creating %d dimensions',len(new_dims))
   for dim,vals in new_dims.items():
       print(dim,vals)
       if isinstance(vals[0],str):
@@ -138,13 +144,14 @@ def clip(model,dest_fn,end_nodes):
 
   num_generations = max(new_links.dest_generation)+1
 
+  logging.info('Creating model batches')
   for mod,nodes in nodes_to_keep.items():
       grp = model_grp.create_group(mod)
       batch_sizes = [len(tmp[(tmp.model==mod)&(tmp.generation==g)]) for g in range(num_generations)]
       batches = np.cumsum(batch_sizes)
       grp.create_dataset('batches',dtype=np.uint32,data=batches)
 
-
+  logging.info('Copying parameters, inputs and states')
   for mod,nodes in nodes_to_keep.items():
       grp = model_grp[mod]
       src_grp = fp['MODELS'][mod]
@@ -156,7 +163,7 @@ def clip(model,dest_fn,end_nodes):
       if 'states' in src_grp:
           grp.create_dataset('states',data=src_grp['states'][nodes,:])
 
-
+  logging.info('Creating model map tables')
   for mod,model_map_with_dims in new_model_maps.items():
       grp = model_grp[mod]
       src_grp = fp['MODELS'][mod]
@@ -183,6 +190,7 @@ def clip(model,dest_fn,end_nodes):
   mod_order =[m.decode() for m in new_mod['META']['models'][...]]
   descriptions = {mod:getattr(node_types,mod).description for mod in mod_order}
 
+  logging.info('Creating LINKS table')
   new_link_vals = new_links.sort_values('src_generation').copy()
   for grp in ['src','dest']:
       mod_col = f'{grp}_model'
