@@ -2,11 +2,14 @@ from .array_params import get_parameter_locations
 import numpy as np
 import pandas as pd
 
+MODELS={}
+
 def _create_model_type(name,description):
   import sys
   thismodule = sys.modules[__name__]
-
-  setattr(thismodule,name,ModelDescription(name,description))
+  desc = ModelDescription(name,description)
+  MODELS[name] = description
+  setattr(thismodule,name,desc)
 
 class ModelDescription(object):
   def __init__(self,name,description):
@@ -40,3 +43,28 @@ def create_indexed_parameter_table(desc,raw):
   print(indexed_params.index.names,index_names)
   indexed_params.index.names = index_names
   return indexed_params
+
+def models_with_term(term,term_type=None):
+  '''
+  Find all model types that have a timeseries flux matching 'term'
+
+  Parameters
+  ----------
+  term : str
+    The term to search for
+  term_type : str, optional
+    The type of term to search for (e.g. 'Input','Output')
+
+  Returns
+  -------
+  list
+    A list of model types that have the term
+  '''
+  if term_type is None:
+    return list(set(models_with_term(term,'Input') + models_with_term(term,'Output')))
+
+  if not term_type.endswith('s'):
+    term_type = term_type+'s'
+
+  result = [k for k,desc in MODELS.items() if term in desc[term_type]]
+  return result
