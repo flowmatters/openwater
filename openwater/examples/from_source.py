@@ -1185,6 +1185,11 @@ def write_model_and_metadata(model_fn,model_obj,meta,network):
 
   json.dump(meta,open(model_fn.replace('.h5','.meta.json'),'w'),indent=2,default=str)
 
+  DELETE_NETWORK_PROPERTIES=['schematic_location']
+  for prop in DELETE_NETWORK_PROPERTIES:
+    if prop in network.columns:
+      del network[prop]
+
   links,nodes,catchments = split_network(network)
   links.to_file(model_fn.replace('.h5','.links.json'),driver='GeoJSON')
   nodes.to_file(model_fn.replace('.h5','.nodes.json'),driver='GeoJSON')
