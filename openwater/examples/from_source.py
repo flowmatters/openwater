@@ -319,8 +319,8 @@ def make_network_topology(catchments,nodes,links):
                         c2l[['to_name','to_link_name','from_node']],
                         left_on='to_node',right_on='from_node',how='right')
 
-  node_connection_table.from_node[~node_connection_table.from_node.isin(nodes.id)] = np.nan
-  node_connection_table.to_node[~node_connection_table.to_node.isin(nodes.id)] = np.nan
+  node_connection_table.loc[~node_connection_table.from_node.isin(nodes.id),'from_node'] = np.nan
+  node_connection_table.loc[~node_connection_table.to_node.isin(nodes.id),'to_node'] = np.nan
 
   confluences = node_connection_table[~pd.isna(node_connection_table.from_link_name) & \
                                       ~pd.isna(node_connection_table.to_link_name) & \
