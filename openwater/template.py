@@ -261,6 +261,20 @@ class OWTemplate(object):
 
     return res
 
+  def matching_nodes(self,nested=False,**kwargs):
+    result =[n for n in self.nodes if n.matches(**kwargs)]
+    if nested:
+      for nested_tpl in self.nested:
+        result += nested_tpl.matching_nodes(nested,**kwargs)
+
+    return result
+
+  def get_node(self,nested=False,**kwargs):
+    nodes = self.matching_nodes(nested=nested,**kwargs)
+    if len(nodes) != 1:
+      raise Exception('Expected 1 node matching %s, found %d'%(kwargs,len(nodes)))
+    return nodes[0]
+
 class OWNode(object):
   def __init__(self,model_type,name=None,**tags):
     self.model_type = model_type
@@ -299,6 +313,14 @@ class OWNode(object):
 
   def has_input(self,name):
     return name in self.model_type.description['Inputs']
+
+  def matches(self,**kwargs):
+    for tag,val in kwargs.items():
+      if tag not in self.tags:
+        return False
+      if self.tags[tag] != val:
+        return False
+    return True
 
 class OWLink(object):
   '''
