@@ -84,6 +84,23 @@ class DataframeInputs(object):
         self._inputs = {}
     
     def inputter(self,df,input_name,col_format,model=None,**kwargs):
+        '''
+        Map timeseries inputs for a given input name, using the supplied dataframe (df).
+
+        Parameters
+        ----------
+        df : pandas.DataFrame with timeseries data (ie a date time index)
+             Should match the temporal dimensions of the model.
+        input_name : str
+              The name of the timeseries input to map
+        col_format : str
+              A string template that can be used to identify the column name for a given node using the node's tags.
+              Use Python string template syntax, e.g. 'Catchment ${catchment} - ${constituent}'
+        model : str, optional
+              The model to which this input applies. If not provided, the input will be applied to all models with the input.
+        kwargs : dict, optional
+              Tags that must be matched for the input to be applied to a given node.
+        '''
         assert df is not None
         if not len(df) or not len(df.columns):
             logger.warning('Empty dataframe provided for input %s with column format %s',input_name,col_format)
