@@ -277,6 +277,15 @@ class OWTemplate(object):
 
 class OWNode(object):
   def __init__(self,model_type,name=None,**tags):
+    self.tags = tags
+    self.set_model_type(model_type)
+
+    if name:
+      self.name = name
+    else:
+      self.name = self.make_name()
+
+  def set_model_type(self,model_type):
     self.model_type = model_type
     if hasattr(model_type,'name'):
       self.model_name = model_type.name
@@ -284,17 +293,12 @@ class OWNode(object):
     else:
       self.model_name = model_type
       import openwater.nodes as node_types
-      from openwater.discovery import discover
-      discover()
+      if not hasattr(node_types,self.model_name):
+        from openwater.discovery import discover
+        discover(self.model_name)
       self.model_type = getattr(node_types,self.model_name)
 
-    self.tags = tags
     self.tags[TAG_MODEL] = self.model_name
-
-    if name:
-      self.name = name
-    else:
-      self.name = self.make_name()
 
   def make_name(self):
     std_names = ['catchment','model',TAG_PROCESS,'constituent','hru','lu']
