@@ -5,6 +5,37 @@ from openwater import nodes as node_types
 import pandas as pd
 import h5py as h5
 import numpy as np
+from .array_params import get_parameter_locations, param_starts
+
+def diff_keys_and_types(grp1,grp2,prefix=''):
+    for attr in grp1.attrs.keys():
+        if attr not in grp2.attrs.keys():
+            print(f'Missing attribute {attr} at {prefix}')
+    if not hasattr(grp1,'keys'):
+        return
+
+    for key in grp1.keys():
+        new_prefix = f'{prefix}/{key}'
+        if key not in grp2.keys():
+            print(f'Missing {new_prefix}')
+            continue
+        if not hasattr(grp1[key],'keys'):
+            ds1 = grp1[key]
+            ds2 = grp2[key]
+            shp1 = ds1.shape
+            shp2 = ds2.shape
+            if len(shp1) != len(shp2):
+                print(f'Shape mismatch: {shp1} vs {shp2} at {new_prefix}')
+
+            dt1 = ds1.dtype
+            dt2 = ds2.dtype
+            dts_equal = dt1==dt2
+            dts_equal = dts_equal or (str(dt1).startswith('S|') and str(dt2).startswith('S|'))
+            if not dts_equal:
+                print(f'Dtype mismatch {ds1.dtype} vs {ds2.dtype} at {new_prefix}')
+
+        diff_keys_and_types(grp1[key],grp2[key],new_prefix)
+
 
 def identify_models_to_keep(ow_mod, starting):
     links = ow_mod.link_table()
@@ -88,6 +119,29 @@ def check_model_table_consistency(df):
             assert len(set(sss.generation))==1
             assert len(set(sss.gen_node))==1
 
+def copy_parameters(mod,src_grp,dest_grp,nodes):
+  desc = getattr(node_types,mod).description
+  subset = src_grp['parameters'][:,nodes]
+  dimensions = desc.get('Dimensions',[])
+  if not len(dimensions):
+    dest_grp.create_dataset('parameters',data=subset)
+    return
+
+  new_param_locs = get_parameter_locations(desc,subset)
+  # print(mod,'new',new_param_locs)
+  len_params = new_param_locs[-1][1]
+  existing_param_locs = get_parameter_locations(desc,src_grp['parameters'])
+  # print(mod,'old',existing_param_locs)
+  new_sizes = [window[1] - window[0] for window in new_param_locs]
+  # print(mod,'new sizes',new_sizes)
+  source_windows = [[old[0],old[0]+sz] for old,sz in zip(existing_param_locs,new_sizes)]
+  # print(mod,'source windows',source_windows)
+
+  dest_grp.create_dataset('parameters',shape=[len_params,len(nodes)],dtype=subset.dtype)
+  for src,dest in zip(source_windows,new_param_locs):
+    dest_grp['parameters'][dest[0]:dest[1],:] = subset[src[0]:src[1],:]
+
+
 def clip(model,dest_fn,end_nodes):
   nodes_to_keep, links_to_keep = identify_models_to_keep(model,end_nodes)
   node_count = sum([len(v) for v in nodes_to_keep.values()])
@@ -159,7 +213,7 @@ def clip(model,dest_fn,end_nodes):
       if 'inputs' in src_grp:
           grp.create_dataset('inputs',data=src_grp['inputs'][nodes,:,:])
       if 'parameters' in src_grp:
-          grp.create_dataset('parameters',data=src_grp['parameters'][:,nodes])
+          copy_parameters(mod,src_grp,grp,nodes)
       if 'states' in src_grp:
           grp.create_dataset('states',data=src_grp['states'][nodes,:])
 
