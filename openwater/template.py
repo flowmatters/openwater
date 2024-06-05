@@ -1070,7 +1070,20 @@ class ModelFile(object):
                                                  'states',
                                                  **tags)
 
-    def indexed_parameters(self,model,**tags):
+    def indexed_parameters(self,model,tabular=False,**tags):
+        '''
+        Return a table of parameters for a model that includes dimensioned (tabular) parameters
+
+        Parameters
+        ----------
+        model : string
+          Model name
+        tabular : boolean
+          If True, return a tabular data frame (ie with one column per parameter and one row per index)
+          Only works for a single model node
+        tags : dict
+          Tags to filter the model nodes by
+        '''
         raw = self._raw_parameters(model,**tags)
         desc = getattr(node_types,model).description
         indexed = create_indexed_parameter_table(desc,raw)
@@ -1080,6 +1093,11 @@ class ModelFile(object):
             indexed = indexed[indexed[k]==v]
         indexed = indexed.set_index(index_names)
 
+        if tabular:
+           if len(indexed)>1:
+              raise Exception('Cannot return tabular data for more than one model node')
+           idx = indexed.index[0]
+           return indexed.transpose().reset_index().pivot(index='index',columns='parameter',values=idx)
         return indexed
 
     def nodes_matching(self,model,**tags):
