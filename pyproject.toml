@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = 'openwater'
+description = "Hydrological modelling system"
+keywords = ["hydrology", "scripting", "simulation"]
+license = {text = "MIT License"}
+version = "0.1"
+readme = {file = "README.md", content-type = "text/markdown"}
+dependencies = ["numpy", "pandas"]
+authors = [
+    {name = "Joel Rahman", email = "joel@flowmatters.com.au"}
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Software Development :: Libraries :: Python Modules"
+]
+# dynamic = ["test_suite"]
+
+[project.urls]
+Homepage = "https://github.com/flowmatters/openwater"
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[tool.setuptools.packages.find]
+
+[tools.setuptools]
+include-package-data = true
+zip-safe = true

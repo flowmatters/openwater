@@ -16,7 +16,7 @@ Topic :: Scientific/Engineering
 Topic :: Software Development :: Libraries :: Python Modules
 """
 
-version = '0.1'
+# version = '0.1'
 
 HERE = os.path.abspath(os.path.dirname(__file__))
 
@@ -29,26 +29,5 @@ def read(*parts):
         return f.read()
 
 setup(
-        name='openwater',
-        version=version,
-        description="Hydrological modelling system",
-        packages=find_packages(),#["openwater"],
-        long_description=read("README.md"),
-        classifiers=filter(None, classifiers.split("\n")),
-        keywords='hydrology scripting simulation',
-        author='Joel Rahman',
-        author_email='joel@flowmatters.com.au',
-        url='https://github.com/flowmatters/openwater',
-        license='MIT',
-        #py_modules=['openwater','openwater.tests','openwater.tests.system_test],
-        include_package_data=True,
-        zip_safe=True,
-        test_suite = 'nose.collector',
-        install_requires=[
-            'numpy',
-            'pandas'
-        ],
-        extras_require={
-            'test': ['pytest'],
-        },
+    # test_suite  =  "nose.collector" # not supported by pyproject.toml
 )
