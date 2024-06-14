@@ -637,6 +637,8 @@ def compute_simulation_order(graph):
   ancestors_by_node,by_node_type_gen,node_gen = group_run_order(g)
   stages = assign_stages(sequential_order,node_gen,by_node_type_gen)
   stages = [s for s in stages if len(s)]
+  if len(stages)==1:
+    return stages
 
 #   report_time('create node ancestry dataframe for %d nodes'%len(ancestors_by_node))
 #   node_ancestry_df = pd.DataFrame(data=False,index=list(g.nodes),columns=list(g.nodes))
@@ -969,13 +971,19 @@ class ModelGraph(object):
                 link_table.append(link)
         link_table = pd.DataFrame(link_table)
         col_order = LINK_TABLE_COLUMNS
+        if not len(link_table):
+          return pd.DataFrame(columns=col_order)
+
         link_table = link_table[col_order]
         sort_order = ['src_generation','src_model','src_gen_node','dest_generation','dest_model','dest_gen_node']
         return link_table.sort_values(sort_order)
 
     def _write_links(self,f):
         table = np.array(self.link_table())
-        f.create_dataset('LINKS',dtype=np.uint32,data=table)
+        if len(table):
+          f.create_dataset('LINKS',dtype=np.uint32,data=table)
+        else:
+          f.create_dataset('LINKS',dtype=np.uint32,shape=[0,len(LINK_TABLE_COLUMNS)])
 
 def dim_val(v):
     if hasattr(v,'decode'):
