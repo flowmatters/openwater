@@ -853,7 +853,8 @@ class ModelGraph(object):
         if not len(dimensions):
             print(attributes)
             print(len(node_set))
-            raise 'No dimensions'
+            n = self._graph.nodes[node_set[0]]
+            raise Exception(f'No dimensions for model {n[TAG_MODEL]} in process {n[TAG_PROCESS]}')
 
         if len([d for d in dimensions if len(dimension_values[d])==0]):
             print('Dimension(s) with 0 length:',dimension_values)
