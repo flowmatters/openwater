@@ -4,6 +4,27 @@ import pandas as pd
 
 MODELS={}
 
+class ReadOnlyObjectDict(object):
+  def __init__(self,d):
+    self._d = d
+  def __dir__(self):
+    return list(self._d.keys()) + dir(super())
+  def __getattr__(self,k):
+    try:
+      return self._d[k]
+    except KeyError:
+      raise AttributeError(k)
+  def __repr__(self):
+    return repr(self._d.keys())
+  def __str__(self):
+    return str(self._d.keys())
+  def __iter__(self):
+    return iter(self._d)
+  def __len__(self):
+    return len(self._d)
+  def __contains__(self,k):
+    return k in self._d
+
 def _create_model_type(name,description):
   import sys
   thismodule = sys.modules[__name__]
@@ -15,6 +36,10 @@ class ModelDescription(object):
   def __init__(self,name,description):
     self.name = name
     self.description = description
+    self.inputs = ReadOnlyObjectDict({i:i for i in description['Inputs']})
+    self.outputs = ReadOnlyObjectDict({o:o for o in description['Outputs']})
+    self.states = ReadOnlyObjectDict({s:s for s in description['States']})
+    self.parameters = ReadOnlyObjectDict({p['Name']:p['Name'] for p in description['Parameters']})
 
   def __str__(self):
     return 'Openwater Model Description: %s'%self.name
