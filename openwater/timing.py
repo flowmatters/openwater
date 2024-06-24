@@ -1,4 +1,6 @@
 
+import logging
+logger = logging.getLogger(__name__)
 INDENT=2
 INDENT_CHAR=' '
 INDENT_SUFFIX=' * '
@@ -12,12 +14,12 @@ class Timer(object):
         self.start = datetime.now()
         self.end = None
         self.elapsed = None
-    
+
     def close(self):
         self.end = datetime.now()
         self.elapsed = (self.end - self.start).total_seconds()
         self.report()
-    
+
     def report(self,indent=INDENT):
         indent_txt = INDENT_CHAR*indent + INDENT_SUFFIX
         if self.end is None:
@@ -26,7 +28,7 @@ class Timer(object):
             msg =' %f seconds'%self.elapsed
 
         txt = indent_txt+self.label + msg
-        print(indent_txt+self.label + msg)
+        logger.debug(indent_txt+self.label + msg)
         messages = []
         for st in self.subtimers:
             m = st.report(indent+INDENT)
