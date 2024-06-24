@@ -51,6 +51,11 @@ def tags_match(o_tags,i_tags):
 
   return True
 
+def model_name(model_type_or_name):
+  if hasattr(model_type_or_name,'name'):
+    return model_type_or_name.name
+  return model_type_or_name
+
 class OWTemplate(object):
   def __init__(self,lbl=''):
     self.label=lbl
@@ -731,8 +736,7 @@ class ModelGraph(object):
                 i += 1
 
     def nodes_matching(self,model,**tags):
-        if hasattr(model,'name'):
-            model = model.name
+        model = model_name(model)
         if not '_model' in tags:
             tags['_model'] = model
 
@@ -1038,6 +1042,7 @@ class ModelFile(object):
         return result
 
     def _map_model_dims(self,model):
+        model = model_name(model)
         model_map = self._h5f['MODELS'][model]['map'][...]
         m_dims = [dim_val(d) for d in self._h5f['MODELS'][model]['map'].attrs['DIMS']]
         dims = {d:self._h5f['DIMENSIONS'][d][...] for d in m_dims}
@@ -1067,14 +1072,14 @@ class ModelFile(object):
 
     def parameters(self,model,**tags):
         return _tabulate_model_scalars_from_file(self._h5f,
-                                                 model,
+                                                 model_name(model),
                                                  self._map_model_dims(model),
                                                  'parameters',
                                                  **tags)
 
     def initial_states(self,model,**tags):
         return _tabulate_model_scalars_from_file(self._h5f,
-                                                 model,
+                                                 model_name(model),
                                                  self._map_model_dims(model),
                                                  'states',
                                                  **tags)
@@ -1161,8 +1166,8 @@ class ModelFile(object):
           Only show links between graph nodes with all of these tags
         """
         linkages = self.link_table()
-
         if dest_mod:
+            dest_mod = model_name(dest_mod)
             linkages = linkages[linkages.dest_model==dest_mod]
             nodes = self.nodes_matching(dest_mod,**dest_tags,**kwargs)
             linkages = linkages[linkages.dest_node.isin(nodes._run_idx)]
@@ -1171,6 +1176,7 @@ class ModelFile(object):
             linkages = linkages[linkages.dest_var==dest_var]
 
         if src_mod:
+            src_mod = model_name(src_mod)
             linkages = linkages[linkages.src_model==src_mod]
             nodes = self.nodes_matching(src_mod,**src_tags,**kwargs)
             linkages = linkages[linkages.src_node.isin(nodes._run_idx)]
