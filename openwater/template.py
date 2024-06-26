@@ -481,192 +481,147 @@ def find_first_small_stage(stages):
 def flatten(l_of_l):
     return [item for sublist in l_of_l for item in sublist]
 
-descendants_by_node={}
-imm_descendants_by_node={}
-# cache_queries = 0
-# cache_misses = 0
-def descendants_cached(g,n):
-    # global cache_queries, cache_misses
-    # cache_queries += 1
+class SimulationSorter(object):
+  def __init__(self,graph):
+    self.graph = graph
+    self.descendants_by_node = {}
+    self.ancestors_by_node = {}
+    self.node_ancestry_df = None
+    self.node_descendent_df = None
+    self.imm_descendants_by_node={}
 
-    if not n in descendants_by_node:
-        # cache_misses += 1
-        descendants_by_node[n] = nx.descendants(g,n)
-    return descendants_by_node[n]
+  def descendants_cached(self,g,n):
+      if not n in self.descendants_by_node:
+          self.descendants_by_node[n] = nx.descendants(g,n)
+      return self.descendants_by_node[n]
 
-    # return list(node_descendent_df[node_descendent_df[n]].index)
+  def immediate_descendants_cached(self,g,n):
+      if not n in self.imm_descendants_by_node:
+          self.imm_descendants_by_node[n] = set(g.successors(n))
+      return self.imm_descendants_by_node[n]
 
-def immediate_descendants_cached(g,n):
-    if not n in imm_descendants_by_node:
-        # cache_misses += 1
-        imm_descendants_by_node[n] = set(g.successors(n))
-    return imm_descendants_by_node[n]
+  def bring_forward(self,g,stages):
+      init_timer('bring_forward')
+      first_small_stage = find_first_small_stage(stages)
+      for i in range(first_small_stage,len(stages)-1):
+          si = stages[i]
+          if not len(si):
+              continue
 
-def bring_forward(g,stages):
-    init_timer('bring_forward')
-    first_small_stage = find_first_small_stage(stages)
-    for i in range(first_small_stage,len(stages)-1):
-        si = stages[i]
-        if not len(si):
-            continue
+          all_descendents = set(flatten([self.descendants_cached(g,n) for n in si]))
 
-        all_descendents = set(flatten([descendants_cached(g,n) for n in si]))
+          si1 = stages[i+1]
+          candidates = [n for n in si1 if not n in all_descendents]
+          if len(candidates):
+              stages[i] += candidates
+              stages[i+1] = list(set(stages[i+1]) - set(candidates)) # [n for n in stages[i+1] if not n in candidates] # set difference?
+      stages = [s for s in stages if len(s)]
+      close_timer()
+      return stages
 
-        si1 = stages[i+1]
-        candidates = [n for n in si1 if not n in all_descendents]
-        if len(candidates):
-            stages[i] += candidates
-            stages[i+1] = list(set(stages[i+1]) - set(candidates)) # [n for n in stages[i+1] if not n in candidates] # set difference?
+  def latest_possible(self,g,n,n_stages,node_stages):
+      current = node_stages[n]
+      next_stage = current+1
+      descendants = self.immediate_descendants_cached(g,n)
+      # descendent_stages = np.array([node_stages[d] for d in descendants])
+      # earliest_descendent = descendent_stages.min()
+      # return earliest_descendent - 1
+
+      lowest = n_stages
+      for d in descendants:
+          descendent_stage = node_stages[d]
+          # if descendent_stage == 0:
+          #     print(n,d,n_stages,current,descendent_stage,lowest)
+          if descendent_stage >= lowest:
+              continue
+          if descendent_stage == next_stage:
+              return current
+          lowest = descendent_stage
+          # if descendent_stage < lowest:
+          #     lowest = descendent_stage
+      if not lowest:
+          print(n,current,n_stages,d,descendent_stage)
+          raise Exception('Boo')
+      return lowest-1
+
+  # @profile
+  def push_back_ss(self,g,stages):
+    init_timer('push_back_ss')
+    to_remove = {n:[] for n in range(len(stages))}
+    to_add = {n:[] for n in range(len(stages))}
+
+  #   first_small_stage = find_first_small_stage(stages)
+
+    visited = {}
+  #   init_timer('map node stages')
+    node_stages = map_stages(stages)
+  #   close_timer()
+
+    count = 0
+    nodes_downstream = 0
+
+    for i in range(len(stages)-1,-1,-1):
+      # init_timer('stage %d'%i)
+      stage_nodes = list(set(stages[i]).union(set(to_add[i])) - set(to_remove[i]))
+      stages[i] = stage_nodes
+      nodes_downstream += len(stage_nodes)
+      for n in stage_nodes:
+        already_visited = n in visited
+        if already_visited and visited[n]==i:
+          # Node last visited as an ancestor and not moved, so no reason to look further at ancestors
+          continue
+        ancestors = self.ancestors_by_node[n]
+        for a in ancestors:
+          current_stage = node_stages[a]
+          visited[a]=current_stage
+          if current_stage == (i-1):
+              continue # Already as late as possible
+          new_stage = self.latest_possible(g,a,len(stages),node_stages)
+          if new_stage==current_stage:
+              continue
+          to_add[new_stage].append(a)
+          to_remove[current_stage].append(a)
+          node_stages[a] = new_stage
     stages = [s for s in stages if len(s)]
     close_timer()
     return stages
 
-def latest_possible(g,n,n_stages,node_stages):
-    current = node_stages[n]
-    next_stage = current+1
-    descendants = immediate_descendants_cached(g,n)
-    # descendent_stages = np.array([node_stages[d] for d in descendants])
-    # earliest_descendent = descendent_stages.min()
-    # return earliest_descendent - 1
+  def compute_simulation_order(self):
+    init_timer('compute_simulation_order')
+    init_timer('Get basic order')
+    self.descendants_by_node = {}
+    g = self.graph
+    sequential_order = list(nx.topological_sort(g))
+    assert len(sequential_order)==len(g.nodes),f'Expect sequential order ({len(sequential_order)})to contain every node ({len(g.nodes)})'
 
-    lowest = n_stages
-    for d in descendants:
-        descendent_stage = node_stages[d]
-        # if descendent_stage == 0:
-        #     print(n,d,n_stages,current,descendent_stage,lowest)
-        if descendent_stage >= lowest:
-            continue
-        if descendent_stage == next_stage:
-            return current
-        lowest = descendent_stage
-        # if descendent_stage < lowest:
-        #     lowest = descendent_stage
-    if not lowest:
-        print(n,current,n_stages,d,descendent_stage)
-        raise Exception('Boo')
-    return lowest-1
+    ancestors_by_node,by_node_type_gen,node_gen = group_run_order(g)
+    self.ancestors_by_node = ancestors_by_node
+    stages = assign_stages(sequential_order,node_gen,by_node_type_gen)
+    stages = [s for s in stages if len(s)]
+    if len(stages)==1:
+      return stages
 
-#shifts = 0
+  #   report_time('create node ancestry dataframe for %d nodes'%len(ancestors_by_node))
+  #   node_ancestry_df = pd.DataFrame(data=False,index=list(g.nodes),columns=list(g.nodes))
+  #   for k,ancestors in ancestors_by_node.items():
+  #       node_ancestry_df[k][ancestors] = True
+  #   node_descendent_df = node_ancestry_df.transpose()
+    report_time('Grouping model stages/generations')
 
-# def push_back_orig(g,stages):
-#     first_small_stage = find_first_small_stage(stages)
-# #     visited = {}
-#     global shifts
-#     node_stages = map_stages(stages)
-#     count = 0
-#     nodes_downstream = 0
-#     for i in range(len(stages)-1,-1,-1):
-#         stage_nodes = stages[i]
-#         nodes_downstream += len(stage_nodes)
-#         print(i)
-#         for n in stage_nodes:
-# #             if (n in visited) and visited[n]==i:
-# #                 # Node visited as an ancestor and not moved, so no reason to look further at ancestors
-# #                 continue
-#             ancestors = ancestors_by_node[n]
-#             for a in ancestors:
-#                 current_stage = node_stages[a]
-# #                 visited[a]=current_stage
-#                 if current_stage == (i-1):
-#                     continue # Already as late as possible
-#                 new_stage = latest_possible(g,a,len(stages),node_stages)
-#                 if new_stage==current_stage:
-#                     continue
-
-#                 shifts += 1
-#                 stages[new_stage].append(a)
-#                 stages[current_stage].remove(a)
-#                 node_stages[a] = new_stage
-#                 #print(i,n,a,current_stage,new_stage)
-#                 #count += 1
-#                 #assert(count<10)
-#     stages = [s for s in stages if len(s)]
-#     return stages
-
-# @profile
-def push_back_ss(g,stages):
-  init_timer('push_back_ss')
-  to_remove = {n:[] for n in range(len(stages))}
-  to_add = {n:[] for n in range(len(stages))}
-
-#   first_small_stage = find_first_small_stage(stages)
-
-  visited = {}
-#   init_timer('map node stages')
-  node_stages = map_stages(stages)
-#   close_timer()
-
-  count = 0
-  nodes_downstream = 0
-#  global shifts
-  for i in range(len(stages)-1,-1,-1):
-    # init_timer('stage %d'%i)
-    stage_nodes = list(set(stages[i]).union(set(to_add[i])) - set(to_remove[i]))
-    stages[i] = stage_nodes
-    nodes_downstream += len(stage_nodes)
-    for n in stage_nodes:
-      already_visited = n in visited
-      if already_visited and visited[n]==i:
-        # Node last visited as an ancestor and not moved, so no reason to look further at ancestors
-        continue
-      ancestors = ancestors_by_node[n]
-      for a in ancestors:
-        current_stage = node_stages[a]
-        visited[a]=current_stage
-        if current_stage == (i-1):
-            continue # Already as late as possible
-        new_stage = latest_possible(g,a,len(stages),node_stages)
-        if new_stage==current_stage:
-            continue
-#        shifts += 1
-        to_add[new_stage].append(a)
-        to_remove[current_stage].append(a)
-        #stages[new_stage].append(a)
-        #stages[current_stage].remove(a)
-        node_stages[a] = new_stage
-        #print(i,n,a,current_stage,new_stage)
-        #count += 1
-        #assert(count<10)
-    # close_timer()
-  stages = [s for s in stages if len(s)]
-  close_timer()
-  return stages
-
-def compute_simulation_order(graph):
-  init_timer('compute_simulation_order')
-  init_timer('Get basic order')
-  global descendants_by_node
-  descendants_by_node = {}
-  g = graph
-  sequential_order = list(nx.topological_sort(g))
-  global ancestors_by_node #, node_ancestry_df, node_descendent_df
-  ancestors_by_node,by_node_type_gen,node_gen = group_run_order(g)
-  stages = assign_stages(sequential_order,node_gen,by_node_type_gen)
-  stages = [s for s in stages if len(s)]
-  if len(stages)==1:
-    return stages
-
-#   report_time('create node ancestry dataframe for %d nodes'%len(ancestors_by_node))
-#   node_ancestry_df = pd.DataFrame(data=False,index=list(g.nodes),columns=list(g.nodes))
-#   for k,ancestors in ancestors_by_node.items():
-#       node_ancestry_df[k][ancestors] = True
-#   node_descendent_df = node_ancestry_df.transpose()
-  report_time('Grouping model stages/generations')
-
-  n_stages = len(stages)
-  new_n_stages = 0
-  iteration = 1
-  while new_n_stages<n_stages:
-    init_timer('Iteration %d'%iteration)
     n_stages = len(stages)
-    stages = bring_forward(g,stages)
-    stages = push_back_ss(g,stages)
-    new_n_stages = len(stages)
-    iteration += 1
+    new_n_stages = 0
+    iteration = 1
+    while new_n_stages<n_stages:
+      init_timer('Iteration %d'%iteration)
+      n_stages = len(stages)
+      stages = self.bring_forward(g,stages)
+      stages = self.push_back_ss(g,stages)
+      new_n_stages = len(stages)
+      iteration += 1
+      close_timer()
     close_timer()
-  close_timer()
-  close_timer()
-  return stages
+    close_timer()
+    return stages
 
 def tag_set(nodes):
     return reduce(lambda a,b: a.union(b),[set(n.keys()) for n in nodes])
@@ -698,12 +653,14 @@ class ModelGraph(object):
 
     def initialise(self):
         init_timer('Compute simulation order')
-        self.order = compute_simulation_order(self._graph)
+        sorter = SimulationSorter(self._graph)
+        self.order = sorter.compute_simulation_order()
         report_time('Tag nodes')
         for i,gen in enumerate(self.order):
             for node in gen:
                 self._graph.nodes[node][TAG_GENERATION]=i
         self.sequence = flatten(self.order)
+
         nodes = self._graph.nodes
         self.model_names = list({n[TAG_MODEL] for n in self._graph.nodes.values()} )
 
