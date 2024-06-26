@@ -10,7 +10,7 @@ def _tabulate_model_scalars_from_file(file,model,model_map,scalar_type,**tags):
         names = desc.description['States']
 
     result = pd.DataFrame(model_map)
-    print(vals.shape)
+
     order = list(result['_run_idx'])
     for ix,name in enumerate(names):
         if scalar_type=='parameters':
