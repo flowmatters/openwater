@@ -3,7 +3,7 @@ import pytest
 import json
 import os
 import io
-from openwater import OWTemplate, OWLink, debugging, compute_simulation_order
+from openwater import OWTemplate, OWLink, debugging
 import openwater.template as templating
 import openwater.nodes as node_types
 import openwater.config as config
@@ -53,7 +53,7 @@ def build_catchment_graph(catchments):
             continue
         dest_catchment = int(dest_label,2)
 
-        
+
         src_node =   [n for n in g.nodes if n.startswith('%d-transport'%i)][0]
         dest_node =  [n for n in g.nodes if n.startswith('%d-transport'%dest_catchment)][0]
         g.add_edge(src_node,dest_node,src=['out'],dest=['i2'])
@@ -65,7 +65,7 @@ class ScaledTimeSeriesParameteriser(object):
         self.the_input = the_input
         self.model = model
         self.scales = kwargs
-    
+
     def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
         if not config._models_match(self.model,model_desc):
             return
@@ -146,7 +146,7 @@ class TestOWSim(unittest.TestCase):
                 factor += c * CATCHMENT_SCALE
                 factor += l_scale * LU_SCALE
             result = N_LANDUSES * base_rain + factor
-            
+
             N_CATCHMENTS = 2**N_LEVELS - 1
             inflows = [c*2,c*2+1]
             if inflows[0] <= N_CATCHMENTS:
