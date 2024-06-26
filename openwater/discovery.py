@@ -138,11 +138,14 @@ def _collect_arguments(description,args,kwargs):
 
   return inputs, _flatten_params(description,params), states, outputs
 
-def discover():
+def discover(*args):
   import os
   import json
   import subprocess
   metadata = json.loads(subprocess.check_output([_exe_path('inspect')]).decode('utf-8'))
+
+  if len(args):
+    metadata = {k:v for k,v in metadata.items() if k in args}
 
   for model_name,model_meta in metadata.items():
     single._create_model_func(model_name,model_meta)
