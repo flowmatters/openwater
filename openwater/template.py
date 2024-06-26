@@ -1,6 +1,7 @@
 import os
 import sys
 import h5py
+import shutil
 from subprocess import Popen, PIPE
 from queue import Queue, Empty  # python 3.x
 from threading  import Thread
@@ -1201,6 +1202,10 @@ class ModelFile(object):
     def close(self):
         self._h5f.close()
         self._h5f = None
+
+    def copy(self,dest_fn):
+        shutil.copy(self.filename,dest_fn)
+        return ModelFile(dest_fn)
 
     def write(self,clear_inputs=False):
         try:
