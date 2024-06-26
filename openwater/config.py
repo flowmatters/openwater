@@ -8,13 +8,15 @@ import logging
 logger = logging.getLogger(__name__)
 
 def _models_match(configured,trial):
-    if configured is None:
-        return True
+  if configured is None:
+    return True
 
-    if configured == trial:
-        return True
+  if configured == trial:
+    return True
 
-    return configured == trial.name
+  if hasattr(configured,'name'):
+    return configured.name == trial.name
+  return configured == trial.name
 
 def _locate_parameter_in_description(model_desc,parameter):
     matching_params = [i for i,p in enumerate(model_desc.description['Parameters']) if p['Name']==parameter]
