@@ -106,7 +106,7 @@ class OpenwaterResults(object):
       slices[dim_num] = dim_idx
     return dim_names, dims, run_map, slices, data
 
-  def time_series(self,model,variable:str,columns:str,aggregator=None,**kwargs) -> pd.DataFrame:
+  def time_series(self,model,variable:str,columns:str,aggregator=None,filter_tags={},**kwargs) -> pd.DataFrame:
     '''
     Return a table (DataFrame) of time series results from the model.
 
@@ -122,6 +122,7 @@ class OpenwaterResults(object):
 
     For dimensions (row, columns and kwargs), see dims_for_model
     '''
+    kwargs.update(filter_tags)
     dim_names, dims, run_map, slices, data = self._retrieve_data(model,variable,**kwargs)
   
     report_dim = dim_names.index(columns)
