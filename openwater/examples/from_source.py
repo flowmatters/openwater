@@ -1149,16 +1149,11 @@ def node_lookups(network_fn):
 
 def _arg_parser():
   import argparse
-  def parse_time_period(txt):
-    result = txt.split('-')
-    if len(result)!=2:
-      raise argparse.ArgumentTypeError(f'{txt} is not a valid time period')
-    return result
 
   from veneer import extract_config as ec
   parser = ec._base_arg_parser()
   parser.add_argument('-o','--openwater',help='Path to Openwater binaries',default=None)
-  parser.add_argument('--timeperiod',help='Time period for converted model (format yyyy/mm/dd-yyyy/mm/dd)',type=parse_time_period,default=None)#'2000/01/01-2000/12/31')
+  parser.add_argument('--timeperiod',help='Time period for converted model (format yyyy/mm/dd-yyyy/mm/dd)',type=ec._parse_time_period_arg,default=None)#'2000/01/01-2000/12/31')
   parser.add_argument('--timestep',help='Timestep for converted model',default='1d')
   parser.add_argument('--destination',help='Destination directory for converted model',default='.')
   parser.add_argument('--existing', help='Use existing model structure and only convert parameters', action='store_true')
