@@ -44,7 +44,8 @@ emc_dwc = template.add_node('EmcDwc',constituent='Sediment')
 
 The `add_link` method takes an instance of `OWLink`, which is constructed from node references and the names of input and output fluxes:
 
-```pythonfrom openwater.template import OWLink
+```python
+from openwater.template import OWLink
 
 quickflow_to_vol = OWLink(runoff,'surfaceRunoff',depth_to_rate,'input')
 template.add_link(runoff_to_vol)
