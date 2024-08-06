@@ -9,7 +9,7 @@ keywords = ["hydrology", "scripting", "simulation"]
 license = {text = "MIT License"}
 version = "0.1"
 readme = {file = "README.md", content-type = "text/markdown"}
-dependencies = ["numpy", "pandas"]
+# dependencies = ["numpy", "pandas", "Cython", "graphviz", "networkx", "h5py", "rasterio", "taudem"]
 authors = [
     {name = "Joel Rahman", email = "joel@flowmatters.com.au"}
 ]
