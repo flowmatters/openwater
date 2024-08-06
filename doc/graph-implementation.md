@@ -20,7 +20,7 @@ Nodes are further attributed with multiple, user defined tags, which support mod
 
 Model graphs are built using the `OWTemplate` class. Once configured with individual nodes and links, and optional nested templates, an `OWTemplate` can be converted to an instance `ModelGraph`, which can be populated with parameters, initial states and input timeseries and subsequently saved to disk. A saved model can be subsequently reloaded as a `ModelFile`, supporting modification of inputs, states and parameters, but not structural change.
 
-![Building an openwater model](ModelLifecycle.png)
+![Building an openwater model](figures/ModelLifecycle.png)
 
 ```python
 from openwater.template import OWTemplate
@@ -65,6 +65,6 @@ for hru in HYDROLOGIC_RESPONSE_UNITS:
   catchment.nest(hru_template)
 ```
 
-![Nesting templates](NestedTemplates.png)
+![Nesting templates](figures/NestedTemplates.png)
 
 
