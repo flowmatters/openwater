@@ -631,7 +631,7 @@ def proc_model(node):
 
 def match_model_name(node_name):
     return g.nodes[node_name][TAG_MODEL]
-    #    return np.string_(re.match(re.compile('.*\(([\w\d]+)\)'),node_name)[1])
+    #    return np.bytes_(re.match(re.compile('.*\(([\w\d]+)\)'),node_name)[1])
 
 def sort_nodes(nodes):
     '''
@@ -762,7 +762,7 @@ class ModelGraph(object):
     def _write_meta(self,h5f):
         meta = h5f.create_group('META')
         meta.create_dataset('models',
-                            data=[np.string_(n) for n in self.model_names],
+                            data=[np.bytes_(n) for n in self.model_names],
                             dtype='S%d'%max([len(mn) for mn in self.model_names]))
         if self.time_period is not None:
           dates = np.array([ts.isoformat() for ts in self.time_period],dtype=h5py.special_dtype(vlen=str))
@@ -773,7 +773,7 @@ class ModelGraph(object):
         for t in self.all_tags:
             vals = self.distinct_values[t]
             if hasattr(vals[0],'__len__'):
-                vals = [np.string_(v) for v in vals]
+                vals = [np.bytes_(v) for v in vals]
             dimensions.create_dataset(t,data=vals)
 
     def _map_process(self,node_set):
@@ -825,7 +825,7 @@ class ModelGraph(object):
         # dimensions = [distinct_values[d] for d in dims]
         shape = tuple([len(self.distinct_values[d]) for d in dimensions])
 
-        model_instances = np.ones(shape=shape,dtype=np.uint32) * -1
+        model_instances = np.ones(shape=shape,dtype=np.int32) * -1
         for node_name in node_set:
             node = nodes[node_name]
 
@@ -856,8 +856,8 @@ class ModelGraph(object):
             ds = model_grp.create_dataset('map',dtype=instances.dtype,data=instances,fillvalue=-1)
 
             # write out model index
-            ds.attrs['PROCESSES']=[np.string_(s) for s in list(processes_for_model)]
-            ds.attrs['DIMS']=[np.string_(d) for d in dims]
+            ds.attrs['PROCESSES']=[np.bytes_(s) for s in list(processes_for_model)]
+            ds.attrs['DIMS']=[np.bytes_(d) for d in dims]
             for attr,val in attributes.items():
                 ds.attrs[attr]=val
 

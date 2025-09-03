@@ -1,9 +1,10 @@
-import unittest
 import pytest
 import json
 import os
 import io
 from openwater import OWTemplate, OWLink, debugging
+import openwater.lib as owl
+from openwater.discovery import discover, set_exe_path,_lib_path,_exe_path
 import openwater.template as templating
 import openwater.nodes as node_types
 import openwater.config as config
@@ -24,7 +25,7 @@ N_LANDUSES=3
 N_LEVELS=8
 N_TIMESTEPS=500
 LU_SCALE = 10**math.ceil(math.log10(N_TIMESTEPS)) * 10
-CATCHMENT_SCALE = 10**math.ceil(math.log10(N_LANDUSES)) * LU_SCALE * 10
+CATCHMENT_SCALE = 10**math.ceil(math.log10(N_LANDUSES)) #* LU_SCALE * 10
 N_CATCHMENTS = 2**N_LEVELS - 1
 MODEL_FN='test_model.h5'
 RESULTS_FN='test_model_outputs.h5'
@@ -94,83 +95,91 @@ class ScaledTimeSeriesParameteriser(object):
                 print('Processing %s'%node_name)
             i += 1
 
-class TestOWSim(unittest.TestCase):
-    @pytest.mark.skip()
-    def test_split(self):
-        clean(MODEL_FN)
-        clean(RESULTS_FN)
+def test_split_ow_sim():
+    clean(MODEL_FN)
+    clean(RESULTS_FN)
 
-        discovery.discover()
-        template = OWTemplate()
-        link = template.add_node(node_types.Sum,process='transport')
+    discovery.discover()
+    template = OWTemplate()
+    link = template.add_node(node_types.Sum,process='transport')
 
+    for lu in range(N_LANDUSES):
+        n = template.add_node(node_types.RunoffCoefficient,process='runoff',lu=lu)
+        template.add_link(OWLink(n,'runoff',link,'i1'))
+    catchments = create_catchment_tree(N_LEVELS,template)
+    g = build_catchment_graph(catchments)
+    model = templating.ModelGraph(g)
+    params = Parameteriser()
+    coeffs = DefaultParameteriser(node_types.RunoffCoefficient,coeff=1.0)
+    params.append(coeffs)
+    base_rain = np.arange(N_TIMESTEPS,dtype='f')
+    rainfall_input = ScaledTimeSeriesParameteriser(base_rain,'rainfall',node_types.RunoffCoefficient,
+                                                catchment=CATCHMENT_SCALE,lu=LU_SCALE)
+    params.append(rainfall_input)
+    model._parameteriser = params
+
+    model.write_model(MODEL_FN,N_TIMESTEPS)
+    print(glob('*.h5'))
+    cmd_line = '%s -verbose -overwrite %s %s'%(os.path.join(discovery._exe_path('sim')),MODEL_FN,RESULTS_FN)
+    print('Running: ',cmd_line)
+    exit_code = os.system(cmd_line)
+    if exit_code:
+        raise Exception('Simulation exited with exit code: %d'%exit_code)
+
+    res = OpenwaterResults(MODEL_FN,RESULTS_FN)
+    check_result(res, base_rain)
+
+def test_python_lib_model():
+    base_rains = np.arange(10,dtype='float64')
+    expected = base_rains
+    result = owl.RunoffCoefficient(rainfall=base_rains, coeff=1.0)[0][0]
+    assert_array_equal(result, expected, 'RunoffCoefficient outputs')
+
+def check_result(res, base_rain):
+    models = res.models()
+    assert ('RunoffCoefficient' in models)
+    assert ('Sum' in models)
+    runoff = res.time_series('RunoffCoefficient','runoff','catchment',lu=1)
+    streamflow = res.time_series('Sum','out','catchment')
+
+    for catchment in runoff.columns:
+        check_runoff(catchment, runoff, base_rain)
+
+    for i in streamflow.columns:
+        check_streamflow(i, streamflow, base_rain)
+
+    tbl = res.table('RunoffCoefficient','runoff','catchment','lu','sum')
+    rain_sum = sum(base_rain)
+    for c in runoff.columns:
         for lu in range(N_LANDUSES):
-            n = template.add_node(node_types.RunoffCoefficient,process='runoff',lu=lu)
-            template.add_link(OWLink(n,'runoff',link,'i1'))
-        catchments = create_catchment_tree(N_LEVELS,template)
-        g = build_catchment_graph(catchments)
-        model = templating.ModelGraph(g)
-        params = Parameteriser()
-        coeffs = DefaultParameteriser(node_types.RunoffCoefficient,coeff=1.0)
-        params.append(coeffs)
-        base_rain = np.arange(N_TIMESTEPS,dtype='f')
-        rainfall_input = ScaledTimeSeriesParameteriser(base_rain,'rainfall',node_types.RunoffCoefficient,
-                                                    catchment=CATCHMENT_SCALE,lu=LU_SCALE)
-        params.append(rainfall_input)
-        model._parameteriser = params
+            sum_c_lu_runoff = tbl.loc[c,lu]
+            offset = N_TIMESTEPS*(c*CATCHMENT_SCALE + lu*LU_SCALE)
+            assert (rain_sum+offset == sum_c_lu_runoff)
 
-        model.write_model(MODEL_FN,N_TIMESTEPS)
-        print(glob('*.h5'))
-        cmd_line = '%s -verbose -overwrite %s %s'%(os.path.join(discovery._exe_path('sim')),MODEL_FN,RESULTS_FN)
-        print('Running: ',cmd_line)
-        exit_code = os.system(cmd_line)
-        if exit_code:
-            raise Exception('Simulation exited with exit code: %d'%exit_code)
+def check_runoff(c,runoff, base_rain, l=1.0):
+        c_factor = c * CATCHMENT_SCALE
+        l_factor = l * LU_SCALE
+        values = np.array(runoff[c])
+        orig_values = values - c_factor - l_factor
+        assert_array_equal(orig_values,base_rain,'Runoff in catchment %d'%c)
 
-        res = OpenwaterResults(MODEL_FN,RESULTS_FN)
-        models = res.models()
-        self.assertIn('RunoffCoefficient', models)
-        self.assertIn('Sum', models)
-        runoff = res.time_series('RunoffCoefficient','runoff','catchment',lu=1)
-        streamflow = res.time_series('Sum','out','catchment')
-        def check_runoff(c,l=1):
-            c_factor = c * CATCHMENT_SCALE
-            l_factor = l * LU_SCALE
-            values = np.array(runoff[c])
-            orig_values = values - c_factor - l_factor
-            assert_array_equal(orig_values,base_rain,'Runoff in catchment %d'%c)
+def expected_streamflow(c, base_rain):
+    factor = 0
+    for l_scale in range(N_LANDUSES):
+        factor += c * CATCHMENT_SCALE
+        factor += l_scale * LU_SCALE
+    result = N_LANDUSES * base_rain + factor
 
-        def expected_streamflow(c):
-            factor = 0
-            for l_scale in range(N_LANDUSES):
-                factor += c * CATCHMENT_SCALE
-                factor += l_scale * LU_SCALE
-            result = N_LANDUSES * base_rain + factor
+    N_CATCHMENTS = 2**N_LEVELS - 1
+    inflows = [c*2,c*2+1]
+    if inflows[0] <= N_CATCHMENTS:
+        result += expected_streamflow(inflows[0], base_rain) + expected_streamflow(inflows[1], base_rain)
 
-            N_CATCHMENTS = 2**N_LEVELS - 1
-            inflows = [c*2,c*2+1]
-            if inflows[0] <= N_CATCHMENTS:
-                result += expected_streamflow(inflows[0]) + expected_streamflow(inflows[1])
+    return result
 
-            return result
+def check_streamflow(c, streamflow, base_rain):
+    expected = expected_streamflow(c, base_rain)
+    assert_array_equal(streamflow[c],expected,'Streamflow in catchment %d'%c)
 
-        def check_streamflow(c):
-            expected = expected_streamflow(c)
-            assert_array_equal(streamflow[c],expected,'Streamflow in catchment %d'%c)
-
-        for catchment in runoff.columns:
-            check_runoff(catchment)
-
-        for i in streamflow.columns:
-            check_streamflow(i)
-
-        tbl = res.table('RunoffCoefficient','runoff','catchment','lu','sum')
-        rain_sum = sum(base_rain)
-        for c in runoff.columns:
-            for lu in range(N_LANDUSES):
-                sum_c_lu_runoff = tbl.loc[c,lu]
-                offset = N_TIMESTEPS*(c*CATCHMENT_SCALE + lu*LU_SCALE)
-                self.assertEqual(rain_sum+offset,sum_c_lu_runoff)
-
-if __name__ == '__main__':
-    unittest.main()
+if __name__=='__main__':
+    pytest.main(['--pyargs',  'openwater.tests.system_test'])
