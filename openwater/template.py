@@ -19,6 +19,7 @@ from .file import _tabulate_model_scalars_from_file
 import logging
 logger = logging.getLogger(__name__)
 import time
+import itertools
 
 # Non blocking IO solution from http://stackoverflow.com/a/4896288
 ON_POSIX = 'posix' in sys.builtin_module_names
@@ -590,17 +591,38 @@ class SimulationSorter(object):
   def compute_simulation_order(self):
     print("COMPUTING SEQUENTIAL ORDER " + time.strftime("%Y-%m-%d %H:%M:%S.", time.localtime()) + f"{int(time.time() * 1000) % 1000:03d}")
     g = self.graph
-    # self.descendants_by_node = {}
-    stages = list(nx.topological_generations(g))
-    import pickle
-    with open("stages.pickle", 'wb') as handle:
-       pickle.dump(stages, handle)
-    # self.ancestors_by_node = ancestors_by_node(g)
+    generations = list(nx.topological_generations(g))
+    stages = alap(generations,desc(g))
     if len(stages)==1:
       return stages
     print("FOUND SEQUENTIAL ORDER " + time.strftime("%Y-%m-%d %H:%M:%S.", time.localtime()) + f"{int(time.time() * 1000) % 1000:03d}")
-    
     return stages
+
+def desc(gr):
+    ret = dict()
+    for g in gr.nodes():
+        ret[g] = nx.descendants(gr, g)
+    return ret
+
+def min_over_descendants(v, desc, t):
+    return min([t[d] for d in desc[v]])
+
+def alap(generations, desc):
+    reversed_generations = generations[::-1]
+    alap_generations = [[] for _ in range(len(generations))]
+    L = len(generations)-1# max bound
+    V = list(itertools.chain.from_iterable(reversed_generations))
+    t = dict()
+    for v in V:
+        if v in reversed_generations[0]:
+            t[v] = L
+        else:
+            if len(desc[v]) == 0:
+                t[v] = L
+            else:
+                t[v] = min_over_descendants(v, desc, t) - 1
+        alap_generations[t[v]].append(v)
+    return alap_generations
 
 def tag_set(nodes):
     return reduce(lambda a,b: a.union(b),[set(n.keys()) for n in nodes])
