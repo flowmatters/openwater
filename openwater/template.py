@@ -18,6 +18,7 @@ from .nodes import create_indexed_parameter_table
 from .file import _tabulate_model_scalars_from_file
 import logging
 logger = logging.getLogger(__name__)
+import time
 
 # Non blocking IO solution from http://stackoverflow.com/a/4896288
 ON_POSIX = 'posix' in sys.builtin_module_names
@@ -425,25 +426,25 @@ def match_nodes(g,**kwargs):
 def model_type(n):
     return str(n).split('(')[1][:-1]
 
-def group_run_order(g):
+def ancestors_by_node(g):
     ancestors_by_node = {}
-    by_node_type_gen = {}
-    node_gen = {}
+    # by_node_type_gen = {}
+    # node_gen = {}
     for n in list(g.nodes):
-        ancestors = nx.ancestors(g,n)
+        ancestors = nx.ancestors(g,n, backend="cugraph")
         ancestors_by_node[n] = ancestors
 
-        mt = model_type(n)
+        # mt = model_type(n)
 
-        if not mt in by_node_type_gen:
-            by_node_type_gen[mt] = {}
+        # if not mt in by_node_type_gen:
+        #     by_node_type_gen[mt] = {}
 
-        n_ancestors = len(ancestors)
-        if not n_ancestors in by_node_type_gen[mt]:
-            by_node_type_gen[mt][n_ancestors] = []
-        by_node_type_gen[mt][n_ancestors].append(n)
-        node_gen[n]=n_ancestors
-    return ancestors_by_node,by_node_type_gen,node_gen
+        # n_ancestors = len(ancestors)
+        # if not n_ancestors in by_node_type_gen[mt]:
+        #     by_node_type_gen[mt][n_ancestors] = []
+        # by_node_type_gen[mt][n_ancestors].append(n)
+        # node_gen[n]=n_ancestors
+    return ancestors_by_node #,by_node_type_gen,node_gen
 
 def assign_stages(order,node_gen,by_node_type_gen):
     done = {}
@@ -587,40 +588,18 @@ class SimulationSorter(object):
     return stages
 
   def compute_simulation_order(self):
-    init_timer('compute_simulation_order')
-    init_timer('Get basic order')
-    self.descendants_by_node = {}
+    print("COMPUTING SEQUENTIAL ORDER " + time.strftime("%Y-%m-%d %H:%M:%S.", time.localtime()) + f"{int(time.time() * 1000) % 1000:03d}")
     g = self.graph
-    sequential_order = list(nx.topological_sort(g))
-    assert len(sequential_order)==len(g.nodes),f'Expect sequential order ({len(sequential_order)})to contain every node ({len(g.nodes)})'
-
-    ancestors_by_node,by_node_type_gen,node_gen = group_run_order(g)
-    self.ancestors_by_node = ancestors_by_node
-    stages = assign_stages(sequential_order,node_gen,by_node_type_gen)
-    stages = [s for s in stages if len(s)]
+    # self.descendants_by_node = {}
+    stages = list(nx.topological_generations(g))
+    import pickle
+    with open("stages.pickle", 'wb') as handle:
+       pickle.dump(stages, handle)
+    # self.ancestors_by_node = ancestors_by_node(g)
     if len(stages)==1:
       return stages
-
-  #   report_time('create node ancestry dataframe for %d nodes'%len(ancestors_by_node))
-  #   node_ancestry_df = pd.DataFrame(data=False,index=list(g.nodes),columns=list(g.nodes))
-  #   for k,ancestors in ancestors_by_node.items():
-  #       node_ancestry_df[k][ancestors] = True
-  #   node_descendent_df = node_ancestry_df.transpose()
-    report_time('Grouping model stages/generations')
-
-    n_stages = len(stages)
-    new_n_stages = 0
-    iteration = 1
-    while new_n_stages<n_stages:
-      init_timer('Iteration %d'%iteration)
-      n_stages = len(stages)
-      stages = self.bring_forward(g,stages)
-      stages = self.push_back_ss(g,stages)
-      new_n_stages = len(stages)
-      iteration += 1
-      close_timer()
-    close_timer()
-    close_timer()
+    print("FOUND SEQUENTIAL ORDER " + time.strftime("%Y-%m-%d %H:%M:%S.", time.localtime()) + f"{int(time.time() * 1000) % 1000:03d}")
+    
     return stages
 
 def tag_set(nodes):
