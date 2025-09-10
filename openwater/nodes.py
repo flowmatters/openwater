@@ -1,6 +1,10 @@
 from .array_params import get_parameter_locations
 import numpy as np
 import pandas as pd
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.NOTSET)
+logger.propagate = True
 
 MODELS={}
 
@@ -65,7 +69,7 @@ def create_indexed_parameter_table(desc,raw):
   index_names = [n for n in raw.index.names if not n.startswith('_') and n!='node']
   indexed_params = pd.concat([raw.transpose(),pd.DataFrame(idx)],axis=1).set_index(['parameter','index'])
   indexed_params = indexed_params.transpose()
-  print(indexed_params.index.names,index_names)
+  logger.debug(f'{indexed_params.index.names}, {index_names}')
   indexed_params.index.names = index_names
   return indexed_params
 

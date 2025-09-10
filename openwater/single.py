@@ -1,4 +1,7 @@
-
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.NOTSET)
+logger.propagate = True
 
 def _create_model_func(name,description):
   import sys
@@ -49,7 +52,7 @@ def _create_model_func(name,description):
       arr = np.array(out['RunResults']['Outputs']).transpose()
       out['RunResults']['Outputs'] = DataFrame(arr,columns=description['Outputs'])
     except Exception as e: 
-      print(e)
+      logger.error(e)
       pass
     return out,err
 

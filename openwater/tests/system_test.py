@@ -77,7 +77,7 @@ class ScaledTimeSeriesParameteriser(object):
         if len(matching_inputs)==0:
             return
 
-        print('==== SingleTimeseriesInput(%s) called for %s ===='%(self.the_input,model_desc.name))
+        logger.info('==== SingleTimeseriesInput(%s) called for %s ===='%(self.the_input,model_desc.name))
         input_num = matching_inputs[0]
         data = np.array(self.ts)
 
@@ -92,7 +92,7 @@ class ScaledTimeSeriesParameteriser(object):
             grp['inputs'][run_idx,input_num,:] = data + offset
 
             if i%100 == 0:
-                print('Processing %s'%node_name)
+                logger.info('Processing %s'%node_name)
             i += 1
 
 def test_split_ow_sim():
@@ -119,9 +119,9 @@ def test_split_ow_sim():
     model._parameteriser = params
 
     model.write_model(MODEL_FN,N_TIMESTEPS)
-    print(glob('*.h5'))
+    logger.debug(glob('*.h5'))
     cmd_line = '%s -verbose -overwrite %s %s'%(os.path.join(discovery._exe_path('sim')),MODEL_FN,RESULTS_FN)
-    print('Running: ',cmd_line)
+    logger.info(f'Running: {cmd_line}')
     exit_code = os.system(cmd_line)
     if exit_code:
         raise Exception('Simulation exited with exit code: %d'%exit_code)

@@ -18,6 +18,9 @@ from .nodes import create_indexed_parameter_table
 from .file import _tabulate_model_scalars_from_file
 import logging
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.NOTSET)
+logger.propagate = True
+
 import time
 import itertools
 
@@ -542,8 +545,7 @@ class SimulationSorter(object):
           # if descendent_stage < lowest:
           #     lowest = descendent_stage
       if not lowest:
-          print(n,current,n_stages,d,descendent_stage)
-          raise Exception('Boo')
+          raise Exception(n,current,n_stages,d,descendent_stage)
       return lowest-1
 
   # @profile
@@ -589,13 +591,13 @@ class SimulationSorter(object):
     return stages
 
   def compute_simulation_order(self):
-    print("COMPUTING SEQUENTIAL ORDER " + time.strftime("%Y-%m-%d %H:%M:%S.", time.localtime()) + f"{int(time.time() * 1000) % 1000:03d}")
+    init_timer("Compute simulation order")
     g = self.graph
     generations = list(nx.topological_generations(g))
     stages = alap(generations,desc(g))
     if len(stages)==1:
       return stages
-    print("FOUND SEQUENTIAL ORDER " + time.strftime("%Y-%m-%d %H:%M:%S.", time.localtime()) + f"{int(time.time() * 1000) % 1000:03d}")
+    close_timer()
     return stages
 
 def desc(gr):
@@ -797,7 +799,7 @@ class ModelGraph(object):
 
 #        dim_values = {d:sorted({nodes[n][d] for n in node_set}) for d in dimensions}
         if len(dimsets) > 1:
-            print('Populating nodes with dummy dimension values')
+            logger.info('Populating nodes with dummy dimension values')
             for dim in dimensions:
                 added_dummy = False
                 dummy_val = f'dummy-{dim}'
@@ -814,14 +816,13 @@ class ModelGraph(object):
         dimensions = [d for d in dimensions if not d in attributes]
 
         if not len(dimensions):
-            print(attributes)
-            print(len(node_set))
+            logger.debug(attributes)
+            logger.debug(len(node_set))
             n = self._graph.nodes[node_set[0]]
             raise Exception(f'No dimensions for model {n[TAG_MODEL]} in process {n[TAG_PROCESS]}')
 
         if len([d for d in dimensions if len(dimension_values[d])==0]):
-            print('Dimension(s) with 0 length:',dimension_values)
-            raise Exception('Dimension(s) with 0 length')
+            raise Exception('Dimension(s) with 0 length:',dimension_values)
         # dims = tags_by_process[p]
         # dimensions = [distinct_values[d] for d in dims]
         shape = tuple([len(self.distinct_values[d]) for d in dimensions])
@@ -832,7 +833,7 @@ class ModelGraph(object):
 
             loc = tuple([self.distinct_values[d].index(node[d]) for d in dimensions])
             if len(loc) < len(shape):
-                print(loc,node)
+                logger.debug(f'{loc}, {node}')
             model_instances[loc] = node[TAG_RUN_INDEX]
 
         return dimension_values, attributes,model_instances
@@ -846,7 +847,7 @@ class ModelGraph(object):
         for mx,m in enumerate(models):
             model_msg ='Writing model %s (%d/%d)'%(m,mx+1,len(models))
             init_timer(model_msg)
-            print(model_msg)
+            logger.info(model_msg)
             model_grp = models_grp.create_group(m)
 
             model_nodes = [n for n in nodes if nodes[n][TAG_MODEL]==m]
@@ -871,7 +872,7 @@ class ModelGraph(object):
                 n_params = len(desc['Parameters'])
                 n_inputs = len(desc['Inputs'])
             else:
-                print('No description for %s'%m)
+                logger.warning('No description for %s'%m)
                 desc = None
                 n_states = 3
                 n_params = 4
@@ -1171,13 +1172,13 @@ class ModelFile(object):
             import h5py
             self._h5f = h5py.File(self.filename,'r+')
             if self._parameteriser is None:
-                print('Nothing to do')
+                logger.info('Nothing to do')
                 return
 
             models_grp = self._h5f['MODELS']
             models = list(models_grp.keys())
             for m in models:
-                print('Parameterising %s'%str(m))
+                logger.info('Parameterising %s'%str(m))
                 model_grp = models_grp[m]
 
                 instances = model_grp['map'][...]
@@ -1234,7 +1235,7 @@ def _run(time_period,model_fn=None,results_fn=None,**kwargs):
     if not results_fn:
         base,ext = os.path.splitext(model_fn)
         results_fn = '%s_outputs%s'%(base,ext)
-        print('INFO: No output filename provided. Writing to %s'%results_fn)
+        logger.info('No output filename provided. Writing to %s'%results_fn)
 
     cmd_line = [_exe_path('sim')]
     for k,v in kwargs.items():
@@ -1260,7 +1261,7 @@ def _run(time_period,model_fn=None,results_fn=None,**kwargs):
             try:
                 line = std_err_queue.get_nowait().decode('utf-8')
                 err.append(line)
-                print('ERROR %s'%(line,))
+                logger.error('%s'%(line,))
                 sys.stdout.flush()
             except Empty:
                 end_stream = True
@@ -1270,7 +1271,7 @@ def _run(time_period,model_fn=None,results_fn=None,**kwargs):
             try:
                 line = std_out_queue.get_nowait().decode('utf-8')
                 out.append(line)
-                print(line)
+                logger.error(line)
                 sys.stdout.flush()
             except Empty:
                 end_stream = True

@@ -31,6 +31,8 @@ from veneer.utils import split_network
 from .const import *
 import logging
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.NOTSET)
+logger.propagate = True
 
 EXPECTED_LINK_PREFIX='link for catchment '
 
@@ -88,12 +90,12 @@ def df_model_lookup(df,default=None):
 
     key_columns = [c for c in LOOKUP_COLUMN_ORDER if c in df.columns]
     #key_columns = [c for c in df.columns if c != 'model']
-    print('key_columns',key_columns)
+    logger.info('key_columns',key_columns)
     keys = df[key_columns].to_dict(orient='records')
     keys = [tuple([k[kc] for kc in key_columns]) for k in keys]
     vals = [m.split('.')[-1] for m in list(df.model)]
     lookup_table = dict(zip(keys,vals))
-    print('table of %d rows'%len(lookup_table))
+    logger.info('table of %d rows'%len(lookup_table))
     return build_model_lookup(lookup_table=lookup_table,default=default)
 
 
@@ -335,7 +337,7 @@ def make_network_topology(catchments,nodes,links):
 
   return linkages
 
-def build_catchment_graph(model_structure,network,progress=print,custom_processing=None):
+def build_catchment_graph(model_structure,network,progress=logger.info,custom_processing=None):
   init_timer('Sort features')
   if hasattr(network,'as_dataframe'):
     network = network.as_dataframe()
@@ -364,7 +366,7 @@ def build_catchment_graph(model_structure,network,progress=print,custom_processi
       tpl = model_structure.get_node_template(node_name=node['name'],node_type=node_type).flatten()
       interesting_nodes.loc[ix,'accepts_inflow']=tpl.has_input(UPSTREAM_FLOW_FLUX)
       templates.append(tpl)
-  print(interesting_nodes[['id','name','icon','accepts_inflow']])
+  logger.debug(interesting_nodes[['id','name','icon','accepts_inflow']])
 
   report_time('Link catchments')
 
@@ -584,14 +586,14 @@ def demand_parameteriser(builder):
         is_extractive = \
           extraction_params[extraction_params.NetworkElement==extraction_node_name].IsExtractive.iloc[0]
         if not is_extractive:
-          print(f'Skipping non-extractive node: {extraction_node_name}')
+          logger.info(f'Skipping non-extractive node: {extraction_node_name}')
           continue
         demand = builder._load_csv(f'timeseries-demand-{wu_name}')
 
         if demand is None:
             pattern_demand = builder._load_csv(f'monthly-pattern-demand-{wu_name}')
             if pattern_demand is None:
-                builder.warn('No demand for %s. Possibly function editor (unsupported)',wu_name)
+                builder.warn(f'No demand for {wu_name}. Possibly function editor (unsupported)')
                 continue
 
             demand = np.array(pattern_demand.volume)
@@ -605,10 +607,10 @@ def demand_parameteriser(builder):
             demand = demand.reindex(builder.time_period)
             if 'TSO' not in demand.columns:
                 renames = {demand.columns[0]:'TSO'}
-                print('No TSO column. Renaming',renames)
+                logger.info(f'No TSO column. Renaming {renames}')
                 demand = demand.rename(columns=renames)
 
-        print(demand.columns)
+        logger.debug(demand.columns)
         demands[extraction_node_name] = demand['TSO']
 
     demands = demands
@@ -639,13 +641,13 @@ def loss_parameteriser(builder):
         return None
 
     logger.info('Configuring losses')
-    print(losses.keys())
+    logger.debug(losses.keys())
 
     adjusted_losses = {}
     should_fail = False
     for k,tbl in losses.items():
         if tbl is None:
-            print(f'No loss table for {k}')
+            logger.error(f'No loss table for {k}')
             should_fail = True
             continue
 
@@ -726,7 +728,7 @@ class FileBasedModelConfigurationProvider(object):
 
     def warn(self,msg,*args):
         self.warnings.append(msg.format(*args))
-        logger.warn(msg,*args)
+        logger.warning(msg,*args)
 
     def _find_files(self,pattern,ignoring=[]):
         patterns = [pattern, pattern+'.gz']
@@ -750,7 +752,7 @@ class FileBasedModelConfigurationProvider(object):
         if not os.path.exists(fn):
             fn = fn + '.gz'
             if not os.path.exists(fn):
-                logger.warn('No such file: %s',fn)
+                logger.warning(f'No such file: {fn}')
                 return None
 
         data = pd.read_csv(fn, index_col=0, parse_dates=True)
@@ -917,10 +919,9 @@ class SourceOpenwaterModelBuilder(object):
 
     def remove_ignored_rows(self,param_df):
         if 'Functional Unit' in param_df.columns:
-            print(len(param_df))
+            logger.debug(len(param_df))
             param_df = param_df[~param_df['Functional Unit'].isin(self.ignore_fus)]
-            print(len(param_df))
-            print()
+            logger.debug(len(param_df))
 
         return param_df
 
@@ -935,24 +936,24 @@ class SourceOpenwaterModelBuilder(object):
 
         init_lookup()
 
-        print('Building model structure')
+        logger.info('Building model structure')
         catchment_template = self.build_catchment_template()
         net = self.provider.network()
         model = build_catchment_graph(catchment_template,net)
         model.time_period=self.provider.time_period
-        print('Got graph, configuring parameters')
+        logger.info('Got graph, configuring parameters')
 
         p = Parameteriser()
         p.append(fu_areas_parameteriser(self.provider.get_fu_areas()))
 
         p.append(node_model_parameteriser(self.provider))
 
-        print('Building parameters')
+        logger.info('Building parameters')
         runoff_parameters = self.build_parameter_lookups(self.provider.runoff_parameters())
         cg_parameters = self.build_parameter_lookups(self.provider.generation_parameters())
         routing_params = self.build_parameter_lookups(self.provider.routing_parameters())
         for model_type, parameters in {**runoff_parameters,**cg_parameters,**routing_params}.items():
-            print('Building parameteriser for %s'%model_type)
+            logger.info('Building parameteriser for %s'%model_type)
             parameteriser = ParameterTableAssignment(parameters,model_type)
             p.append(parameteriser)
 
@@ -961,7 +962,7 @@ class SourceOpenwaterModelBuilder(object):
               states_parameteriser = ParameterTableAssignment(initial_states,model_type)
               p.append(states_parameteriser)
 
-        print('Configuring climate data')
+        logger.info('Configuring climate data')
         climate_inputs,time_period, delta_t = self.provider.climate_data()
         simulation_length = len(time_period)
         p.append(climate_inputs)
@@ -977,7 +978,7 @@ class SourceOpenwaterModelBuilder(object):
 
         model._parameteriser = p
 
-        print('Writing model')
+        logger.info('Writing model')
         model.write_model(dest_fn,simulation_length)
         return  model
 
@@ -997,7 +998,7 @@ class SourceTimeSeriesTranslator(object):
     def parameterise(self,model_desc,grp,instances,dims,nodes):
         if model_desc.name != self.model_type:
             return
-        print('Input time series for %s'%self.model_type)
+        logger.debug('Input time series for %s'%self.model_type)
 
         dataset = grp['inputs']
         input_names = model_desc.description['Inputs']
@@ -1159,6 +1160,8 @@ def _arg_parser():
   parser.add_argument('--existing', help='Use existing model structure and only convert parameters', action='store_true')
   parser.add_argument('--split',type=int,help='Split the model into multiple files (structure, parameters, initial states and input timeseries) where number is number of input timeseries files',default=0)
   parser.add_argument('--run',help='Run the converted model',action='store_true',default=False)
+  parser.add_argument('-v','--verbose',help="Print verbose progress info", action=argparse.BooleanOptionalAction)
+  parser.add_argument('-vv','--debug',help="Print debug info", action=argparse.BooleanOptionalAction)
   return parser
 
 def write_model_and_metadata(model_fn,model_obj,meta,network):
@@ -1191,7 +1194,7 @@ def write_model_and_metadata(model_fn,model_obj,meta,network):
   catchments.to_file(model_fn.replace('.h5','.catchments.json'),driver='GeoJSON')
 
 def build_main(builder,model,timeperiod,openwater=None,existing=False,run=False,**kwargs):
-  print('Build')
+  logger.info('Build')
   if openwater is not None:
     set_exe_path(openwater)
   discover()

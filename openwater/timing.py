@@ -1,6 +1,9 @@
 
 import logging
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.NOTSET)
+logger.propagate = True
+
 INDENT=2
 INDENT_CHAR=' '
 INDENT_SUFFIX=' * '

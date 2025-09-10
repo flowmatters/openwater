@@ -2,12 +2,16 @@ import h5py
 from .template import ModelFile
 from openwater.results import OpenwaterSplitResults
 from typing import Sequence, Tuple
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.NOTSET)
+logger.propagate = True
 
 def create_or_reuse_model_group(fn,existing):
   if fn is None:
     return existing
 
-  print(f'Creating {fn}')  
+  logger.info(f'Creating {fn}')  
   h5_f = h5py.File(fn,'w')
   grp = h5_f.create_group('MODELS')
   for model in existing.keys():
@@ -99,12 +103,12 @@ def split_model(orig_model: str,
         grp.copy('states',init_states_models[model])
 
       if 'inputs' not in grp:
-        print(f'No inputs recorded for {model}. Skipping')
+        logger.info(f'No inputs recorded for {model}. Skipping')
         continue
 
-      print(f'Copying inputs for {model}')
+      logger.info(f'Copying inputs for {model}')
       for ix, ((start_idx,end_idx),ts_dest_grp) in enumerate(zip(input_windows,inputs_models)):
-        print(f'Input window {ix}: [{start_idx}:{end_idx}]')
+        logger.debug(f'Input window {ix}: [{start_idx}:{end_idx}]')
         ts_dest_grp[model]['inputs'] = grp['inputs'][:,:,start_idx:end_idx]
   finally:
     for fp in [input_f,structure_f,params_models,init_states_models]+inputs_models:
@@ -112,10 +116,10 @@ def split_model(orig_model: str,
         continue
 
       if hasattr(fp,'close'):
-        print(f'Closing {fp.filename}')
+        logger.info(f'Closing {fp.filename}')
         fp.close()
       else:
-        print(f'Closing {fp.file.filename}')
+        logger.info(f'Closing {fp.file.filename}')
         fp.file.close()
 
 def run_split_model(structure,params=None,init_states=None,inputs=None,dests=None,final_states=None,**kwargs):
@@ -125,7 +129,7 @@ def run_split_model(structure,params=None,init_states=None,inputs=None,dests=Non
 
   all_results = []
   for ix,(input_f, dest_f, states_f) in enumerate(zip(inputs,dests,final_states)):
-    print(f'Iteration {ix}: {input_f}/{init_states} => {dest_f}/{states_f}')
+    logger.info(f'Iteration {ix}: {input_f}/{init_states} => {dest_f}/{states_f}')
     run_results = _run(None,
                         structure,
                         dest_f,

@@ -2,6 +2,10 @@ import sys
 from .catchment_model_comparison import all_results_files, latest_results, proportion_bad,read_results
 from openwater.discovery import discover, set_exe_path
 import pandas as pd
+import logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.NOTSET)
+logger.propagate = True
 
 OW_BIN='/home/joelrahman/src/projects/openwater/bin'
 DEFAULT_ELEMENTS=['component']
@@ -29,12 +33,12 @@ if __name__ == '__main__':
   _ = discover()
 
   MODEL = sys.argv[1]
-  print(MODEL)
+  logger.info(MODEL)
 
   all_results = all_results_files(MODEL)
   REFERENCE_RESULTS_FN=all_results[-2]
   LATEST_RESULTS_FN=all_results[-1]
-  print(f'Comparing {LATEST_RESULTS_FN} to {REFERENCE_RESULTS_FN}')
+  logger.info(f'Comparing {LATEST_RESULTS_FN} to {REFERENCE_RESULTS_FN}')
 
   ref_results = read_results(REFERENCE_RESULTS_FN)
   all_results = latest_results(MODEL)
