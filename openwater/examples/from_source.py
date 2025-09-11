@@ -31,8 +31,7 @@ from veneer.utils import split_network
 from .const import *
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.NOTSET)
-logger.propagate = True
+
 
 EXPECTED_LINK_PREFIX='link for catchment '
 

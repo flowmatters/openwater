@@ -1,7 +1,6 @@
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.NOTSET)
-logger.propagate = True
+
 
 _DOC_SEP='\n  * '
 _DOC_TEMPLATE='''

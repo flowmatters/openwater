@@ -6,8 +6,7 @@ from .array_params import get_parameter_locations, param_starts
 from .nodes import create_indexed_parameter_table
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.NOTSET)
-logger.propagate = True
+
 
 def _models_match(configured,trial):
   if configured is None:

@@ -4,8 +4,7 @@ from openwater.results import OpenwaterSplitResults
 from typing import Sequence, Tuple
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.NOTSET)
-logger.propagate = True
+
 
 def create_or_reuse_model_group(fn,existing):
   if fn is None:

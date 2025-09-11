@@ -18,8 +18,7 @@ from .nodes import create_indexed_parameter_table
 from .file import _tabulate_model_scalars_from_file
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.NOTSET)
-logger.propagate = True
+
 
 import time
 import itertools

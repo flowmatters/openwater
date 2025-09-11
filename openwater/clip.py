@@ -7,8 +7,7 @@ import h5py as h5
 import numpy as np
 from .array_params import get_parameter_locations, param_starts
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.NOTSET)
-logger.propagate = True
+
 
 def diff_keys_and_types(grp1,grp2,prefix=''):
     for attr in grp1.attrs.keys():

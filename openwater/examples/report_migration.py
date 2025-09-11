@@ -4,8 +4,7 @@ from openwater.discovery import discover, set_exe_path
 import pandas as pd
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.NOTSET)
-logger.propagate = True
+
 
 OW_BIN='/home/joelrahman/src/projects/openwater/bin'
 DEFAULT_ELEMENTS=['component']

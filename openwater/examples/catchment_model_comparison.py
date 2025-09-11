@@ -15,8 +15,7 @@ from .catchment_model_results import OpenwaterCatchmentModelResults
 import veneer
 import logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.NOTSET)
-logger.propagate = True
+
 
 COMPONENTS=[
   'Generation','Routing','Transport','Quick_Flow','Slow_Flow','Total_Flow'
