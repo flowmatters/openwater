@@ -19,6 +19,10 @@ from .file import _tabulate_model_scalars_from_file
 import logging
 logger = logging.getLogger(__name__)
 
+
+import time
+import itertools
+
 # Non blocking IO solution from http://stackoverflow.com/a/4896288
 ON_POSIX = 'posix' in sys.builtin_module_names
 TAG_PROCESS='_process'
@@ -425,25 +429,25 @@ def match_nodes(g,**kwargs):
 def model_type(n):
     return str(n).split('(')[1][:-1]
 
-def group_run_order(g):
+def ancestors_by_node(g):
     ancestors_by_node = {}
-    by_node_type_gen = {}
-    node_gen = {}
+    # by_node_type_gen = {}
+    # node_gen = {}
     for n in list(g.nodes):
-        ancestors = nx.ancestors(g,n)
+        ancestors = nx.ancestors(g,n, backend="cugraph")
         ancestors_by_node[n] = ancestors
 
-        mt = model_type(n)
+        # mt = model_type(n)
 
-        if not mt in by_node_type_gen:
-            by_node_type_gen[mt] = {}
+        # if not mt in by_node_type_gen:
+        #     by_node_type_gen[mt] = {}
 
-        n_ancestors = len(ancestors)
-        if not n_ancestors in by_node_type_gen[mt]:
-            by_node_type_gen[mt][n_ancestors] = []
-        by_node_type_gen[mt][n_ancestors].append(n)
-        node_gen[n]=n_ancestors
-    return ancestors_by_node,by_node_type_gen,node_gen
+        # n_ancestors = len(ancestors)
+        # if not n_ancestors in by_node_type_gen[mt]:
+        #     by_node_type_gen[mt][n_ancestors] = []
+        # by_node_type_gen[mt][n_ancestors].append(n)
+        # node_gen[n]=n_ancestors
+    return ancestors_by_node #,by_node_type_gen,node_gen
 
 def assign_stages(order,node_gen,by_node_type_gen):
     done = {}
@@ -540,8 +544,7 @@ class SimulationSorter(object):
           # if descendent_stage < lowest:
           #     lowest = descendent_stage
       if not lowest:
-          print(n,current,n_stages,d,descendent_stage)
-          raise Exception('Boo')
+          raise Exception(n,current,n_stages,d,descendent_stage)
       return lowest-1
 
   # @profile
@@ -587,41 +590,40 @@ class SimulationSorter(object):
     return stages
 
   def compute_simulation_order(self):
-    init_timer('compute_simulation_order')
-    init_timer('Get basic order')
-    self.descendants_by_node = {}
+    init_timer("Compute simulation order")
     g = self.graph
-    sequential_order = list(nx.topological_sort(g))
-    assert len(sequential_order)==len(g.nodes),f'Expect sequential order ({len(sequential_order)})to contain every node ({len(g.nodes)})'
-
-    ancestors_by_node,by_node_type_gen,node_gen = group_run_order(g)
-    self.ancestors_by_node = ancestors_by_node
-    stages = assign_stages(sequential_order,node_gen,by_node_type_gen)
-    stages = [s for s in stages if len(s)]
+    generations = list(nx.topological_generations(g))
+    stages = alap(generations,desc(g))
     if len(stages)==1:
       return stages
-
-  #   report_time('create node ancestry dataframe for %d nodes'%len(ancestors_by_node))
-  #   node_ancestry_df = pd.DataFrame(data=False,index=list(g.nodes),columns=list(g.nodes))
-  #   for k,ancestors in ancestors_by_node.items():
-  #       node_ancestry_df[k][ancestors] = True
-  #   node_descendent_df = node_ancestry_df.transpose()
-    report_time('Grouping model stages/generations')
-
-    n_stages = len(stages)
-    new_n_stages = 0
-    iteration = 1
-    while new_n_stages<n_stages:
-      init_timer('Iteration %d'%iteration)
-      n_stages = len(stages)
-      stages = self.bring_forward(g,stages)
-      stages = self.push_back_ss(g,stages)
-      new_n_stages = len(stages)
-      iteration += 1
-      close_timer()
-    close_timer()
     close_timer()
     return stages
+
+def desc(gr):
+    ret = dict()
+    for g in gr.nodes():
+        ret[g] = nx.descendants(gr, g)
+    return ret
+
+def min_over_descendants(v, desc, t):
+    return min([t[d] for d in desc[v]])
+
+def alap(generations, desc):
+    reversed_generations = generations[::-1]
+    alap_generations = [[] for _ in range(len(generations))]
+    L = len(generations)-1# max bound
+    V = list(itertools.chain.from_iterable(reversed_generations))
+    t = dict()
+    for v in V:
+        if v in reversed_generations[0]:
+            t[v] = L
+        else:
+            if len(desc[v]) == 0:
+                t[v] = L
+            else:
+                t[v] = min_over_descendants(v, desc, t) - 1
+        alap_generations[t[v]].append(v)
+    return alap_generations
 
 def tag_set(nodes):
     return reduce(lambda a,b: a.union(b),[set(n.keys()) for n in nodes])
@@ -631,7 +633,7 @@ def proc_model(node):
 
 def match_model_name(node_name):
     return g.nodes[node_name][TAG_MODEL]
-    #    return np.string_(re.match(re.compile('.*\(([\w\d]+)\)'),node_name)[1])
+    #    return np.bytes_(re.match(re.compile('.*\(([\w\d]+)\)'),node_name)[1])
 
 def sort_nodes(nodes):
     '''
@@ -762,7 +764,7 @@ class ModelGraph(object):
     def _write_meta(self,h5f):
         meta = h5f.create_group('META')
         meta.create_dataset('models',
-                            data=[np.string_(n) for n in self.model_names],
+                            data=[np.bytes_(n) for n in self.model_names],
                             dtype='S%d'%max([len(mn) for mn in self.model_names]))
         if self.time_period is not None:
           dates = np.array([ts.isoformat() for ts in self.time_period],dtype=h5py.special_dtype(vlen=str))
@@ -773,7 +775,7 @@ class ModelGraph(object):
         for t in self.all_tags:
             vals = self.distinct_values[t]
             if hasattr(vals[0],'__len__'):
-                vals = [np.string_(v) for v in vals]
+                vals = [np.bytes_(v) for v in vals]
             dimensions.create_dataset(t,data=vals)
 
     def _map_process(self,node_set):
@@ -796,7 +798,7 @@ class ModelGraph(object):
 
 #        dim_values = {d:sorted({nodes[n][d] for n in node_set}) for d in dimensions}
         if len(dimsets) > 1:
-            print('Populating nodes with dummy dimension values')
+            logger.info('Populating nodes with dummy dimension values')
             for dim in dimensions:
                 added_dummy = False
                 dummy_val = f'dummy-{dim}'
@@ -813,25 +815,24 @@ class ModelGraph(object):
         dimensions = [d for d in dimensions if not d in attributes]
 
         if not len(dimensions):
-            print(attributes)
-            print(len(node_set))
+            logger.debug(attributes)
+            logger.debug(len(node_set))
             n = self._graph.nodes[node_set[0]]
             raise Exception(f'No dimensions for model {n[TAG_MODEL]} in process {n[TAG_PROCESS]}')
 
         if len([d for d in dimensions if len(dimension_values[d])==0]):
-            print('Dimension(s) with 0 length:',dimension_values)
-            raise Exception('Dimension(s) with 0 length')
+            raise Exception('Dimension(s) with 0 length:',dimension_values)
         # dims = tags_by_process[p]
         # dimensions = [distinct_values[d] for d in dims]
         shape = tuple([len(self.distinct_values[d]) for d in dimensions])
 
-        model_instances = np.ones(shape=shape,dtype=np.uint32) * -1
+        model_instances = np.ones(shape=shape,dtype=np.int32) * -1
         for node_name in node_set:
             node = nodes[node_name]
 
             loc = tuple([self.distinct_values[d].index(node[d]) for d in dimensions])
             if len(loc) < len(shape):
-                print(loc,node)
+                logger.debug(f'{loc}, {node}')
             model_instances[loc] = node[TAG_RUN_INDEX]
 
         return dimension_values, attributes,model_instances
@@ -845,7 +846,7 @@ class ModelGraph(object):
         for mx,m in enumerate(models):
             model_msg ='Writing model %s (%d/%d)'%(m,mx+1,len(models))
             init_timer(model_msg)
-            print(model_msg)
+            logger.info(model_msg)
             model_grp = models_grp.create_group(m)
 
             model_nodes = [n for n in nodes if nodes[n][TAG_MODEL]==m]
@@ -856,8 +857,8 @@ class ModelGraph(object):
             ds = model_grp.create_dataset('map',dtype=instances.dtype,data=instances,fillvalue=-1)
 
             # write out model index
-            ds.attrs['PROCESSES']=[np.string_(s) for s in list(processes_for_model)]
-            ds.attrs['DIMS']=[np.string_(d) for d in dims]
+            ds.attrs['PROCESSES']=[np.bytes_(s) for s in list(processes_for_model)]
+            ds.attrs['DIMS']=[np.bytes_(d) for d in dims]
             for attr,val in attributes.items():
                 ds.attrs[attr]=val
 
@@ -870,7 +871,7 @@ class ModelGraph(object):
                 n_params = len(desc['Parameters'])
                 n_inputs = len(desc['Inputs'])
             else:
-                print('No description for %s'%m)
+                logger.warning('No description for %s'%m)
                 desc = None
                 n_states = 3
                 n_params = 4
@@ -1170,13 +1171,13 @@ class ModelFile(object):
             import h5py
             self._h5f = h5py.File(self.filename,'r+')
             if self._parameteriser is None:
-                print('Nothing to do')
+                logger.info('Nothing to do')
                 return
 
             models_grp = self._h5f['MODELS']
             models = list(models_grp.keys())
             for m in models:
-                print('Parameterising %s'%str(m))
+                logger.info('Parameterising %s'%str(m))
                 model_grp = models_grp[m]
 
                 instances = model_grp['map'][...]
@@ -1233,7 +1234,7 @@ def _run(time_period,model_fn=None,results_fn=None,**kwargs):
     if not results_fn:
         base,ext = os.path.splitext(model_fn)
         results_fn = '%s_outputs%s'%(base,ext)
-        print('INFO: No output filename provided. Writing to %s'%results_fn)
+        logger.info('No output filename provided. Writing to %s'%results_fn)
 
     cmd_line = [_exe_path('sim')]
     for k,v in kwargs.items():
@@ -1259,7 +1260,7 @@ def _run(time_period,model_fn=None,results_fn=None,**kwargs):
             try:
                 line = std_err_queue.get_nowait().decode('utf-8')
                 err.append(line)
-                print('ERROR %s'%(line,))
+                logger.error('%s'%(line,))
                 sys.stdout.flush()
             except Empty:
                 end_stream = True
@@ -1269,7 +1270,7 @@ def _run(time_period,model_fn=None,results_fn=None,**kwargs):
             try:
                 line = std_out_queue.get_nowait().decode('utf-8')
                 out.append(line)
-                print(line)
+                logger.error(line)
                 sys.stdout.flush()
             except Empty:
                 end_stream = True

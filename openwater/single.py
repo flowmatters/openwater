@@ -1,3 +1,5 @@
+import logging
+logger = logging.getLogger(__name__)
 
 
 def _create_model_func(name,description):
@@ -49,7 +51,7 @@ def _create_model_func(name,description):
       arr = np.array(out['RunResults']['Outputs']).transpose()
       out['RunResults']['Outputs'] = DataFrame(arr,columns=description['Outputs'])
     except Exception as e: 
-      print(e)
+      logger.error(e)
       pass
     return out,err
 

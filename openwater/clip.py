@@ -6,18 +6,20 @@ import pandas as pd
 import h5py as h5
 import numpy as np
 from .array_params import get_parameter_locations, param_starts
+logger = logging.getLogger(__name__)
+
 
 def diff_keys_and_types(grp1,grp2,prefix=''):
     for attr in grp1.attrs.keys():
         if attr not in grp2.attrs.keys():
-            print(f'Missing attribute {attr} at {prefix}')
+            logger.warning(f'Missing attribute {attr} at {prefix}')
     if not hasattr(grp1,'keys'):
         return
 
     for key in grp1.keys():
         new_prefix = f'{prefix}/{key}'
         if key not in grp2.keys():
-            print(f'Missing {new_prefix}')
+            logger.warning(f'Missing {new_prefix}')
             continue
         if not hasattr(grp1[key],'keys'):
             ds1 = grp1[key]
@@ -25,14 +27,14 @@ def diff_keys_and_types(grp1,grp2,prefix=''):
             shp1 = ds1.shape
             shp2 = ds2.shape
             if len(shp1) != len(shp2):
-                print(f'Shape mismatch: {shp1} vs {shp2} at {new_prefix}')
+                logger.warning(f'Shape mismatch: {shp1} vs {shp2} at {new_prefix}')
 
             dt1 = ds1.dtype
             dt2 = ds2.dtype
             dts_equal = dt1==dt2
             dts_equal = dts_equal or (str(dt1).startswith('S|') and str(dt2).startswith('S|'))
             if not dts_equal:
-                print(f'Dtype mismatch {ds1.dtype} vs {ds2.dtype} at {new_prefix}')
+                logger.warning(f'Dtype mismatch {ds1.dtype} vs {ds2.dtype} at {new_prefix}')
 
         diff_keys_and_types(grp1[key],grp2[key],new_prefix)
 
@@ -128,14 +130,10 @@ def copy_parameters(mod,src_grp,dest_grp,nodes):
     return
 
   new_param_locs = get_parameter_locations(desc,subset)
-  # print(mod,'new',new_param_locs)
   len_params = new_param_locs[-1][1]
   existing_param_locs = get_parameter_locations(desc,src_grp['parameters'])
-  # print(mod,'old',existing_param_locs)
   new_sizes = [window[1] - window[0] for window in new_param_locs]
-  # print(mod,'new sizes',new_sizes)
   source_windows = [[old[0],old[0]+sz] for old,sz in zip(existing_param_locs,new_sizes)]
-  # print(mod,'source windows',source_windows)
 
   dest_grp.create_dataset('parameters',shape=[len_params,len(nodes)],dtype=subset.dtype)
   for src,dest in zip(source_windows,new_param_locs):
@@ -145,7 +143,7 @@ def copy_parameters(mod,src_grp,dest_grp,nodes):
 def clip(model,dest_fn,end_nodes):
   nodes_to_keep, links_to_keep = identify_models_to_keep(model,end_nodes)
   node_count = sum([len(v) for v in nodes_to_keep.values()])
-  logging.info('Keeping %d nodes and %d links',node_count,len(links_to_keep))
+  logger.info(f'Keeping {node_count} nodes and {len(links_to_keep)} links')
   new_links = renumber_links(links_to_keep,nodes_to_keep)
 
   model_types = set.union(set(new_links.src_model),set(new_links.dest_model))
@@ -158,7 +156,7 @@ def clip(model,dest_fn,end_nodes):
       len_before = len(nodes)
       nodes = nodes[nodes._run_idx.isin(nodes_to_keep[m])]
       len_after = len(nodes)
-      logging.info(f'Using %d of %d %s nodes',len_after,len_before,m)
+      logger.info(f'Using {len_after} of {len_before} {m} nodes')
       new_model_maps[m] = nodes
 
   new_dims = {} 
@@ -179,9 +177,9 @@ def clip(model,dest_fn,end_nodes):
   model_grp = new_mod.create_group('MODELS')
   dim_grp = new_mod.create_group('DIMENSIONS')
 
-  logging.info('Creating %d dimensions',len(new_dims))
+  logger.info(f'Creating {len(new_dims)} dimensions')
   for dim,vals in new_dims.items():
-      print(dim,vals)
+      logger.debug(f'{dim}, {vals}')
       if isinstance(vals[0],str):
           string_data_set(dim_grp,dim,vals)
       else:
@@ -198,18 +196,18 @@ def clip(model,dest_fn,end_nodes):
 
   num_generations = max(new_links.dest_generation)+1
 
-  logging.info('Creating model batches')
+  logger.info('Creating model batches')
   for mod,nodes in nodes_to_keep.items():
       grp = model_grp.create_group(mod)
       batch_sizes = [len(tmp[(tmp.model==mod)&(tmp.generation==g)]) for g in range(num_generations)]
       batches = np.cumsum(batch_sizes)
       grp.create_dataset('batches',dtype=np.uint32,data=batches)
 
-  logging.info('Copying parameters, inputs and states')
+  logger.info('Copying parameters, inputs and states')
   for mod,nodes in nodes_to_keep.items():
       grp = model_grp[mod]
       src_grp = fp['MODELS'][mod]
-      print(mod,list(src_grp.keys()))
+      logger.debug(f'{mod}, {list(src_grp.keys())}')
       if 'inputs' in src_grp:
           grp.create_dataset('inputs',data=src_grp['inputs'][nodes,:,:])
       if 'parameters' in src_grp:
@@ -217,7 +215,7 @@ def clip(model,dest_fn,end_nodes):
       if 'states' in src_grp:
           grp.create_dataset('states',data=src_grp['states'][nodes,:])
 
-  logging.info('Creating model map tables')
+  logger.info('Creating model map tables')
   for mod,model_map_with_dims in new_model_maps.items():
       grp = model_grp[mod]
       src_grp = fp['MODELS'][mod]
@@ -244,7 +242,7 @@ def clip(model,dest_fn,end_nodes):
   mod_order =[m.decode() for m in new_mod['META']['models'][...]]
   descriptions = {mod:getattr(node_types,mod).description for mod in mod_order}
 
-  logging.info('Creating LINKS table')
+  logger.info('Creating LINKS table')
   new_link_vals = new_links.sort_values('src_generation').copy()
   for grp in ['src','dest']:
       mod_col = f'{grp}_model'

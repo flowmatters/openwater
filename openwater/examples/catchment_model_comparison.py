@@ -14,6 +14,8 @@ from openwater.template import ModelFile
 from .catchment_model_results import OpenwaterCatchmentModelResults
 import veneer
 import logging
+logger = logging.getLogger(__name__)
+
 
 COMPONENTS=[
   'Generation','Routing','Transport','Quick_Flow','Slow_Flow','Total_Flow'
@@ -57,7 +59,7 @@ class SourceImplementation(object):
     def flows(self,sc):
       self._load_flows()
       if not sc in self.comparison_flows:
-        logging.warn('No comparison flows for %s. Link may not conform to naming convention'%sc)
+        logger.warning('No comparison flows for %s. Link may not conform to naming convention'%sc)
         return None
 
       return self.comparison_flows[sc]
@@ -81,10 +83,10 @@ class SourceVeneerImplementation(object):
     if not os.path.exists(full_fn):
       full_fn += '.gz'
     if os.path.exists(full_fn):
-      print(f'Loading pre-formatted data {full_fn}')
+      logger.info(f'Loading pre-formatted data {full_fn}')
       return pd.read_csv(full_fn,index_col=0,parse_dates=True)
 
-    print(f'Retrieving data from source results for {fn}')
+    logger.info(f'Retrieving data from source results for {fn}')
     constituent_markers = ['generation','network']
     recording_variables = {
       'generation':'Constituents@%s@Total Flow Mass',
@@ -133,7 +135,7 @@ class SourceVeneerImplementation(object):
     if not os.path.exists(full_fn):
       full_fn += '.gz'
     if os.path.exists(full_fn):
-      print(f'Loading pre-formatted data {full_fn}')
+      logger.info(f'Loading pre-formatted data {full_fn}')
       df = pd.read_csv(full_fn,index_col=0,parse_dates=True)
     else:
       criteria = {
@@ -207,7 +209,7 @@ class SourceOWComparison(object):
 
         return from_source[comparison_column], from_ow
 
-    def compare_fu_level_results(self,elements,s_pattern,ow_fn,tag,progress=print):
+    def compare_fu_level_results(self,elements,s_pattern,ow_fn,tag,progress=logger.info):
         errors = []
         for e in elements:
             progress(e)
@@ -228,9 +230,9 @@ class SourceOWComparison(object):
                 try:
                     fu_comparison = comparison[comparison_columns]
                 except:
-                    print('Looking for',comparison_columns)
-                    print('Have',comparison.columns)
-                    print('Index',comparison.index)
+                    logger.error(f'Looking for {comparison_columns}')
+                    logger.error(f'Have {comparison.columns}')
+                    logger.error(f'Index {comparison.index}')
                     raise
                 if ((ow is None) or (ow.sum().sum()==0)) and fu_comparison.sum().sum()==0:
                     for sc in ow_columns:
@@ -266,7 +268,7 @@ class SourceOWComparison(object):
           return None
         return self.results.time_series(mod,flux,'catchment',cgu=fu,constituent=c)
 
-    def compare_constituent_generation(self,constituents=None,progress=print):
+    def compare_constituent_generation(self,constituents=None,progress=logger.info):
         if constituents is None:
             constituents = self.meta['constituents']
 
@@ -289,7 +291,7 @@ class SourceOWComparison(object):
         ow = self.get_ow_runoff(component,fu)[catchment]
         return source, ow
 
-    def compare_runoff(self,progress=print):
+    def compare_runoff(self,progress=logger.info):
         def get_runoff(c,fu):
             return self.get_ow_runoff(c,fu)
 
@@ -315,10 +317,10 @@ class SourceOWComparison(object):
         orig, ow = self.comparable_flows(sc)
         error = False
         if orig is None:
-            print('No flows for %s in source implementation'%sc)
+            logger.error('No flows for %s in source implementation'%sc)
             error = True
         if ow is None:
-            print('No flows for %s in openwater implementation'%sc)
+            logger.error('No flows for %s in openwater implementation'%sc)
             error = True
         if error:
             return {}#np.nan
@@ -358,10 +360,10 @@ class SourceOWComparison(object):
         from_ow = self.get_ow_timeseries(model,output,'catchment',constituent=constituent)
 
         comparison_column = 'link for catchment %s'%catchment
-        print(from_source.columns)
+        logger.debug(from_source.columns)
         return (from_source[comparison_column]*PER_DAY_TO_PER_SECOND), from_ow[catchment]
 
-    def compare_constituent_transport(self,constituents=None,progress=print):
+    def compare_constituent_transport(self,constituents=None,progress=logger.info):
         if constituents is None:
             constituents = self.meta['constituents']
 
@@ -415,11 +417,11 @@ def default_model_comparison(m,source_files,ow_dir,component=None,con=None):
 def check_factors(df,factors=FACTORS[1:]):
     for f in factors:
         if np.nan in set(df[f]):
-            print('!!! NaN in set of %s values'%f)
+            logger.warning('!!! NaN in set of %s values'%f)
 
 def model_comparison(ow_results_class,m,source_files,ow_dir,component=None,con=None):
   ow_fn     = os.path.join(ow_dir,m)
-  print(f'===== Comparing results for {m}/{component}/{con} from {source_files} and {ow_fn} =====')
+  logger.info(f'===== Comparing results for {m}/{component}/{con} from {source_files} and {ow_fn} =====')
 
   ow     = ow_results_class(ow_fn+'.h5')
 
@@ -435,7 +437,7 @@ def model_comparison(ow_results_class,m,source_files,ow_dir,component=None,con=N
   regulated_links = ow.regulated_links()
   data_frames = []
   if (component is None) or component == 'Runoff':
-    print('- Runoff')
+    logger.info('- Runoff')
     runoff_comparison = test.comparison.compare_runoff().reset_index()
     runoff_comparison['constituent'] = '-'
     runoff_comparison['regulated'] = False
@@ -443,7 +445,7 @@ def model_comparison(ow_results_class,m,source_files,ow_dir,component=None,con=N
     data_frames.append(runoff_comparison)
 
   if (component is None) or component == 'Routing':
-    print('- Streamflow')
+    logger.info('- Streamflow')
     flow_comparison = test.comparison.compare_flows()
     flow_comparison['component'] = 'Routing'
     flow_comparison['catchment'] = flow_comparison.index
@@ -460,7 +462,7 @@ def model_comparison(ow_results_class,m,source_files,ow_dir,component=None,con=N
     cons = None
 
   if (component is None) or component == 'Generation':
-    print('- Constituent generation')
+    logger.info('- Constituent generation')
     generation_comparison = test.comparison.compare_constituent_generation(cons).reset_index()
     generation_comparison['component'] = 'Generation'
     generation_comparison['regulated'] = False
@@ -468,7 +470,7 @@ def model_comparison(ow_results_class,m,source_files,ow_dir,component=None,con=N
     data_frames.append(generation_comparison)
 
   if (component is None) or component == 'Transport':
-    print('- Constituent transport')
+    logger.info('- Constituent transport')
     transport_comparison = test.comparison.compare_constituent_transport(cons).reset_index()
     transport_comparison['component'] = 'Transport'
     transport_comparison['cgu'] = '-'
@@ -476,7 +478,7 @@ def model_comparison(ow_results_class,m,source_files,ow_dir,component=None,con=N
     check_factors(transport_comparison)
     data_frames.append(transport_comparison)
 
-  print('- Combining results')
+  logger.info('- Combining results')
   res = pd.concat(data_frames)
   res['model'] = m
   res = res.reset_index()
@@ -484,7 +486,7 @@ def model_comparison(ow_results_class,m,source_files,ow_dir,component=None,con=N
   res['regulated'] = np.where(res['regulated'],'Regulated','Not Regulated')
 
   res['pc-err'] = 100.0*np.where(res['sum-orig']==0.0,np.minimum(res['sum-ow'],1.0),np.abs(res['delta']/res['sum-orig']))
-  print(f'===== Comparison {m}/{component}/{con} complete =====')
+  logger.info(f'===== Comparison {m}/{component}/{con} complete =====')
   return res
 
 def compare_all(comparison_fn,models,source_files,ow_dir,processes=1,component=None):
@@ -496,10 +498,10 @@ def compare_all(comparison_fn,models,source_files,ow_dir,processes=1,component=N
     combos = water_quality_combos + water_quantity_combos
 
     if component is not None:
-      print(f'Only comparing component={component}')
-      print(f'Before filter = {len(combos)}')
+      logger.info(f'Only comparing component={component}')
+      logger.debug(f'Before filter = {len(combos)}')
       combos = [c for c in combos if c[3]==component]
-      print(f'After filter = {len(combos)}')
+      logger.debug(f'After filter = {len(combos)}')
 
     if processes>1:
         with Pool(processes=processes) as pool:
@@ -541,7 +543,7 @@ def read_results(fn):
 
 def latest_results(pattern='all-models'):
   latest = all_results_files(pattern)[-1]
-  print('Reading from %s'%latest)
+  logger.info('Reading from %s'%latest)
   return read_results(latest)
 
 def get_problematic_rows(df,pc_err_threshold=PC_ERR_THRESHOLD,ssq_threshold=SSQ_THRESHOLD,r_sqd_threshold=0.99):

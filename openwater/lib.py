@@ -19,6 +19,8 @@ def _create_model_func(model_name,description):
   thismodule = sys.modules[__name__]
 
   def model_func(*args,**kwargs):
+    cpu_profile = kwargs.get('cpu_profile', '')
+    kwargs.pop('cpu_profile', None)
     inputs, params, states, _ = _collect_arguments(description,args,kwargs)
     if len(inputs):
       len_first_provided = [len(i) for i in inputs if len(i)][0]
@@ -46,7 +48,8 @@ def _create_model_func(model_name,description):
             *_conv(params),
             *_conv(states),
             *_conv(outputs),
-            ctypes.c_bool(init_states)]
+            ctypes.c_bool(init_states),
+            ctypes.create_string_buffer(bytes(cpu_profile, 'ascii'))]
 
     _the_library.RunSingleModel(*call)
     return [outputs[:,i,:] for i in range(len(description['Outputs']))] + \
@@ -59,6 +62,8 @@ def _create_model_func(model_name,description):
     return {k:v for k,v in kwargs.items() if (k in description['Inputs']) or (k in pnames)}
 
   def with_states(*args,**kwargs):
+    cpu_profile = kwargs.get('cpu_profile', '')
+    kwargs.pop('cpu_profile', None)
     inputs, params, initial_states, _ = _collect_arguments(description,args,kwargs)
     if len(inputs) and len(inputs[0].shape)==1:
       inputs = [i.reshape(1,len(i)) for i in inputs]
@@ -97,7 +102,8 @@ def _create_model_func(model_name,description):
               *c_params,
               *_conv(initial_states),
               *_conv(tmp_outputs),
-              ctypes.c_bool(init_states)]
+              ctypes.c_bool(init_states),
+              ctypes.create_string_buffer(bytes(cpu_profile, 'ascii'))]
       _the_library.RunSingleModel(*call)
       dest_states[:,:,i] = initial_states
       outputs[:,:,i] = tmp_outputs[:,:,0] #[:,:,i].reshape(n_cells,outputs.shape[1],1)

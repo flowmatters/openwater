@@ -7,6 +7,7 @@ from .nodes import create_indexed_parameter_table
 import logging
 logger = logging.getLogger(__name__)
 
+
 def _models_match(configured,trial):
   if configured is None:
     return True
@@ -122,7 +123,6 @@ class DataframeInputs(object):
         logger.info('Timeseries for %s',self._inputs.keys())
         logger.debug(inputs)
         logger.debug(grp)
-        # print('Dims',dims)
         logger.debug(list(nodes.items())[0])
         logger.debug(instances.shape)
         i = 0
@@ -174,7 +174,7 @@ class SingleTimeseriesInput(object):
         if len(matching_inputs)==0:
             return
 
-        print('==== SingleTimeseriesInput(%s) called for %s ===='%(self.the_input,model_desc.name))
+        logger.info('==== SingleTimeseriesInput(%s) called for %s ===='%(self.the_input,model_desc.name))
         input_num = matching_inputs[0]
         data = np.array(self.series)
 
@@ -193,7 +193,7 @@ class SingleTimeseriesInput(object):
             grp['inputs'][run_idx,input_num,:] = data
 
             if i%100 == 0:
-                print('Processing %s'%node_name)
+                logger.debug('Processing %s'%node_name)
             i += 1
 
 class ParameterTableAssignment(object):
@@ -216,7 +216,7 @@ class ParameterTableAssignment(object):
         if not _models_match(self.model,model_desc):
             return
 
-        print('Applying parameter table to %s'%model_desc.name)
+        logger.info('Applying parameter table to %s'%model_desc.name)
 
         if None in [self.column_dim,self.row_dim,self.parameter is None]:
            self._parameterise_nd(model_desc,grp,instances,dims,nodes,nodes_df)
@@ -235,7 +235,7 @@ class ParameterTableAssignment(object):
                 assert len(existing.shape)==1
                 assert existing.shape[0]>=len(nodes)
             except:
-                print(dest_grp,dest_idx0,dest_idx1,p,existing.shape,len(nodes))
+                logger.error(f"{dest_grp}, {dest_idx0}, {dest_idx1}, {p,existing.shape,len(nodes)}")
                 raise
             current_data[p] = existing
 
@@ -306,12 +306,12 @@ class ParameterTableAssignment(object):
             #     print('--> No parameters for %s'%p)
             #     continue
             dest_grp, dest_idx0, dest_idx1 = self.locate(model_desc,p)
-            print('Applying %s for %s'%(dest_grp,p))
+            logger.info('Applying %s for %s'%(dest_grp,p))
             grp[dest_grp][dest_idx0,dest_idx1]=vals
 
     def _parameterise_2d(self,model_desc,grp,instances,dims,nodes):
         dest_grp, dest_idx0, dest_idx1 = self.locate(model_desc,self.parameter)
-        print(dest_grp,dest_idx0,dest_idx1)
+        logger.debug(f'{dest_grp}, {dest_idx0}, {dest_idx1}')
 
         param_data = np.zeros(len(nodes),dtype='float64')
         for _,node in nodes.items():
@@ -333,7 +333,7 @@ class ParameterTableAssignment(object):
 
             param_data[run_idx] = param
 
-        print(param_data)
+        logger.debug(param_data)
         grp[dest_grp][dest_idx0,dest_idx1]=param_data
 
     def locate(self,model_desc,parameter):
@@ -348,7 +348,7 @@ class DefaultParameteriser(object):
         if not _models_match(self._model,model_desc):
             return
 
-        print('Applying default parameters: %s'%model_desc.name)
+        logger.info('Applying default parameters: %s'%model_desc.name)
         for param_num, param in enumerate(model_desc.description['Parameters']):
             pname = param['Name']
             pdefault = param['Default']
@@ -363,7 +363,7 @@ class UniformParameteriser(object):
         if not _models_match(self._model,model_desc):
             return
 
-        print('Applying uniform parameters: %s'%model_desc.name)
+        logger.info('Applying uniform parameters: %s'%model_desc.name)
         for param_num, param in enumerate(model_desc.description['Parameters']):
             pname = param['Name']
             if not pname in self._params:
@@ -382,7 +382,7 @@ class UniformInput(object):
           if input_name!=self.input_name:
             continue
           initialise_model_inputs(model_desc.name,grp,len(nodes_df),len(inputs),self._length)
-          print('Uniform %s = %f'%(self.input_name,self.value))
+          logger.info('Uniform %s = %f'%(self.input_name,self.value))
           for cell in range(len(nodes_df)):
             if hasattr(self.value,'__call__'):
               grp['inputs'][cell,input_num,:] = self.value(cell)
@@ -457,11 +457,11 @@ def populate_table_parameters(existing,param_start,tables,key_format,column_look
         if len(tags)==1:
             vals[tags[0]]=ix_vals
         else:
-            print(ix_vals)
+            logger.error(ix_vals)
             raise Exception('not supported')
         key = key_format.substitute(**vals)
         if key not in tables:
-            print(f'==== NO TABLE WITH KEY {key}, format={key_format.template}, vals={vals}, tags={tags} ====')
+            logger.error(f'==== NO TABLE WITH KEY {key}, format={key_format.template}, vals={vals}, tags={tags} ====')
             missed = True
             continue
         tbl = tables[key]
@@ -472,11 +472,11 @@ def populate_table_parameters(existing,param_start,tables,key_format,column_look
             if col in param_start:
                 column_lookup[col]=col
 
-        print(i,ix_vals)
+        logger.debug(f'{i}, {ix_vals}')
         for param,col in column_lookup.items():
             vals = tbl[col]
             param_idx = param_start[param]
-            print(param,i,param_idx,len(vals))
+            logger.debug(f'{param}, {i},{param_idx}, {len(vals)}')
             arr[i,param_idx:(param_idx+len(vals))] = np.array(vals)
     result = pd.DataFrame(arr,index=existing.index,columns=existing.columns)
     assert not missed
@@ -484,7 +484,7 @@ def populate_table_parameters(existing,param_start,tables,key_format,column_look
 
 def _raw_parameters(model_map,vals):
     df = pd.DataFrame(model_map)
-    print(df)
+    logger.debug(df)
     dim_cols = [col for col in df.columns if (not col.startswith('_') and not col=='node')]
     df = df.set_index(list(dim_cols))
 
