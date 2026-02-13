@@ -25,7 +25,7 @@ def get_artifacts(org='flowmatters',repo='openwater-core',limit=None,**kwargs):
 
     org, repo - Github organisation and repository
     limit - Number of most recent artifacts to return
-    kwargs - 
+    kwargs -
         used to match particular artifacts. Can be any field from github API, as well as
         'platform' and 'sha', which we compute based on artifact['name'] based on
         the convention used in openwater-core (artifact name is <platform>-<sha>.zip)
@@ -56,7 +56,7 @@ def latest_available_artifact(**kwargs):
     artifacts = get_artifacts(limit=1,platform=platform(),**kwargs)
     if len(artifacts): return artifacts[0]
     return None
-    
+
 def _post_install_linux(artifact,dest):
     programs = ['ow-inspect','ow-single','ow-sim','ows-ensemble']
     for p in programs:
@@ -82,7 +82,7 @@ def install_artifact(access_token,artifact=None,dest=None):
 
     * access_token - required Github access token.
     * artifact - the artifact to install. Defaults to latest artifact for this platform
-    * dest - directory to install the binaries. 
+    * dest - directory to install the binaries.
              Defaults to ~/openwater/installations/<artifact-date>-<commit-sha>
 
     Returns: destination directory used
@@ -96,8 +96,11 @@ def install_artifact(access_token,artifact=None,dest=None):
     assert artifact['platform'] == platform()
     url = artifact['archive_download_url']
 
+    # Try to extract version from artifact name or use fallback
+    version_str = artifact.get('version', f"{artifact['updated_at'].replace(':','')}-{artifact['sha']}")
+
     if dest is None:
-        dest = os.path.join(os.path.expanduser(DEST_RELATIVE),f"{artifact['updated_at'].replace(':','')}-{artifact['sha']}")
+        dest = os.path.join(os.path.expanduser(DEST_RELATIVE), version_str)
 
     if not os.path.exists(dest):
         os.makedirs(dest)
@@ -110,5 +113,14 @@ def install_artifact(access_token,artifact=None,dest=None):
         zip.extractall(path=dest)
 
     POST_INSTALL[artifact['platform']](artifact,dest)
+
+    # Write version info file for easier management
+    version_file = os.path.join(dest, 'VERSION.txt')
+    with open(version_file, 'w') as f:
+        f.write(f"Version: {version_str}\n")
+        f.write(f"SHA: {artifact['sha']}\n")
+        f.write(f"Platform: {artifact['platform']}\n")
+        f.write(f"Updated: {artifact['updated_at']}\n")
+
     return dest
 
