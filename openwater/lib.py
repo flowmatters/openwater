@@ -3,6 +3,59 @@ import ctypes
 import numpy as np
 _the_library = None
 
+def get_core_version():
+    """Get the version string from the loaded openwater-core library."""
+    global _the_library
+    if not _the_library:
+        _ensure_library_loaded()
+    if _the_library:
+        try:
+            _the_library.ow_version.restype = ctypes.c_char_p
+            return _the_library.ow_version().decode('utf-8')
+        except:
+            return "unknown"
+    return "unknown"
+
+def get_core_signature_hash():
+    """Get the model signature hash from the loaded openwater-core library."""
+    global _the_library
+    if not _the_library:
+        _ensure_library_loaded()
+    if _the_library:
+        try:
+            _the_library.ow_signature_hash.restype = ctypes.c_char_p
+            return _the_library.ow_signature_hash().decode('utf-8')
+        except:
+            return "unknown"
+    return "unknown"
+
+def extract_signature_hash(version_string):
+    """Extract signature hash from a version string.
+
+    Version format: X.Y.Z+BUILD[-BRANCH].SIGHASH
+    """
+    if not version_string or version_string == "unknown":
+        return "unknown"
+    parts = version_string.split('.')
+    if len(parts) > 0:
+        return parts[-1]
+    return "unknown"
+
+def is_compatible(file_signature_hash):
+    """Check if a model file signature hash is compatible with loaded core."""
+    current_hash = get_core_signature_hash()
+    return current_hash != "unknown" and file_signature_hash == current_hash
+
+def _ensure_library_loaded():
+    """Load the library if not already loaded."""
+    from .discovery import _lib_path
+    global _the_library
+    if not _the_library:
+        try:
+            _the_library = ctypes.CDLL(_lib_path())
+        except:
+            pass
+
 def _conv(arr):
     return [arr.ctypes.data_as(ctypes.POINTER(ctypes.c_double)),*[ctypes.c_int(i) for i in arr.shape]]
 
@@ -11,10 +64,7 @@ def _create_model_func(model_name,description):
 
   global _the_library
   if not _the_library:
-    try:
-        _the_library = ctypes.CDLL(_lib_path())
-    except:
-        return
+    _ensure_library_loaded()
 
   thismodule = sys.modules[__name__]
 
