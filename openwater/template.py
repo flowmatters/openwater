@@ -762,6 +762,9 @@ class ModelGraph(object):
         return desc[flux_type].index(flux_name)
 
     def _write_meta(self,h5f):
+        from datetime import datetime
+        from . import lib
+
         meta = h5f.create_group('META')
         meta.create_dataset('models',
                             data=[np.bytes_(n) for n in self.model_names],
@@ -769,6 +772,23 @@ class ModelGraph(object):
         if self.time_period is not None:
           dates = np.array([ts.isoformat() for ts in self.time_period],dtype=h5py.special_dtype(vlen=str))
           meta.create_dataset('timeperiod',data=dates)
+
+        # Add version metadata
+        try:
+            core_version = lib.get_core_version()
+            signature_hash = lib.get_core_signature_hash()
+
+            h5f.attrs['openwater_version'] = core_version
+            h5f.attrs['signature_hash'] = signature_hash
+            h5f.attrs['created_timestamp'] = datetime.utcnow().isoformat()
+            try:
+                from . import __version__
+                h5f.attrs['created_by'] = f"openwater-py {__version__}"
+            except:
+                h5f.attrs['created_by'] = "openwater-py (version unknown)"
+        except Exception as e:
+            logger.warning(f"Could not write version metadata: {e}")
+
 
     def _write_dimensions(self,f):
         dimensions = f.create_group('DIMENSIONS')
@@ -1227,9 +1247,32 @@ def _run(time_period,model_fn=None,results_fn=None,**kwargs):
 
     * overwrite (boolean): Overwrite existing output file if it exists
     * verbose (boolean): Show verbose logging during simulation
+    * skip_version_check (boolean): Skip compatibility check (not recommended)
     '''
     from openwater.discovery import _exe_path
     from openwater.results import OpenwaterResults
+    from . import lib
+
+    # Check version compatibility if not explicitly skipped
+    if not kwargs.get('skip_version_check', False):
+        try:
+            import h5py
+            with h5py.File(model_fn, 'r') as f:
+                file_sig = f.attrs.get('signature_hash', None)
+                file_version = f.attrs.get('openwater_version', 'unknown')
+
+            if file_sig is not None:
+                current_sig = lib.get_core_signature_hash()
+                if file_sig.decode('utf-8') if isinstance(file_sig, bytes) else file_sig != current_sig:
+                    current_version = lib.get_core_version()
+                    logger.warning(
+                        f"Model file signature mismatch!\n"
+                        f"  File version: {file_version}\n"
+                        f"  Current version: {current_version}\n"
+                        f"  This may cause errors. Rebuild the model file with current version or use skip_version_check=True to override."
+                    )
+        except Exception as e:
+            logger.debug(f"Could not check version compatibility: {e}")
 
     if not results_fn:
         base,ext = os.path.splitext(model_fn)
@@ -1238,6 +1281,8 @@ def _run(time_period,model_fn=None,results_fn=None,**kwargs):
 
     cmd_line = [_exe_path('sim')]
     for k,v in kwargs.items():
+      if k == 'skip_version_check':  # Don't pass internal flag to ow-sim
+          continue
       cmd_line += ow_sim_flag_text(k,v)
     cmd_line.append(model_fn),
     cmd_line.append(results_fn)
