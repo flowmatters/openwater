@@ -230,17 +230,125 @@ def install_version(version: str, org: str = DEFAULT_ORG,
     return download_release(release, dest=dest)
 
 
-def list_available_versions(org: str = DEFAULT_ORG, 
+def list_available_versions(org: str = DEFAULT_ORG,
                            repo: str = DEFAULT_REPO) -> List[str]:
     """
     List all available release versions
-    
+
     Parameters:
         org: GitHub organization
         repo: Repository name
-    
+
     Returns:
         List of version strings
     """
     releases = get_releases(org=org, repo=repo)
     return [r['tag_name'] for r in releases]
+
+
+def list_installed(dest: Optional[str] = None) -> List[Dict]:
+    """
+    List locally installed releases.
+
+    Parameters:
+        dest: Base installations directory (defaults to ~/.openwater/installations)
+
+    Returns:
+        List of dicts with keys: version, tag, platform, published, path.
+        Sorted by directory name (version string).
+    """
+    base = dest or os.path.expanduser(DEST_RELATIVE)
+    if not os.path.isdir(base):
+        return []
+
+    results = []
+    for entry in sorted(os.listdir(base)):
+        entry_path = os.path.join(base, entry)
+        if not os.path.isdir(entry_path):
+            continue
+
+        version_file = os.path.join(entry_path, 'VERSION.txt')
+        info = {'path': entry_path}
+        if os.path.isfile(version_file):
+            with open(version_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if ':' in line:
+                        key, _, value = line.partition(':')
+                        info[key.strip().lower()] = value.strip()
+        else:
+            info['version'] = entry
+
+        results.append(info)
+
+    return results
+
+
+def use(version: str, dest: Optional[str] = None) -> List[str]:
+    """
+    Activate an installed release by version string.
+
+    Sets the executable path and runs discovery so the library is ready to use.
+
+    Parameters:
+        version: Version string (e.g. '1.0.0+abc123.def456') matching the
+                 installation directory name. A 'v' prefix is stripped automatically.
+        dest: Base installations directory (defaults to ~/.openwater/installations)
+
+    Returns:
+        List of discovered model names.
+
+    Raises:
+        ValueError: If the version is not installed.
+    """
+    from . import discovery
+
+    version = version.lstrip('v')
+    base = dest or os.path.expanduser(DEST_RELATIVE)
+    install_path = os.path.join(base, version)
+
+    if not os.path.isdir(install_path):
+        raise ValueError(
+            f"Version {version} is not installed at {install_path}. "
+            f"Use install_version() or install_latest() first."
+        )
+
+    discovery.set_exe_path(install_path)
+    return discovery.discover()
+
+
+def use_latest(dest: Optional[str] = None, install: bool = False,
+               org: str = DEFAULT_ORG, repo: str = DEFAULT_REPO) -> List[str]:
+    """
+    Activate the latest installed release, or optionally install it first.
+
+    Parameters:
+        dest: Base installations directory (defaults to ~/.openwater/installations)
+        install: If True and no releases are installed (or to ensure the very
+                 latest remote release is present), download and install the
+                 latest release from GitHub before activating.
+        org: GitHub organization (used when install=True)
+        repo: Repository name (used when install=True)
+
+    Returns:
+        List of discovered model names.
+
+    Raises:
+        ValueError: If no releases are installed and install is False.
+    """
+    if install:
+        path = install_latest(org=org, repo=repo, dest=dest)
+        # Extract version from the installation path
+        version = os.path.basename(path)
+        return use(version, dest=dest)
+
+    installed = list_installed(dest=dest)
+    if not installed:
+        raise ValueError(
+            "No releases installed. Call install_latest() first, "
+            "or pass install=True to download and install automatically."
+        )
+
+    latest = installed[-1]
+    return use(latest.get('version', os.path.basename(latest['path'])),
+               dest=dest)
