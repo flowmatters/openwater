@@ -50,7 +50,10 @@ def get_releases(org: str = DEFAULT_ORG, repo: str = DEFAULT_REPO,
     
     # Filter out Nightly releases
     releases = [r for r in releases if not r['tag_name'].startswith('Nightly')]
-    
+
+    # Sort by published date, newest first
+    releases.sort(key=lambda r: r.get('published_at', ''), reverse=True)
+
     return releases
 
 
