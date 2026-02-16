@@ -92,8 +92,9 @@ def latest_release(org: str = DEFAULT_ORG, repo: str = DEFAULT_REPO) -> Optional
     return None
 
 
-def download_release(release: Dict, dest: Optional[str] = None, 
-                     platform_override: Optional[str] = None) -> str:
+def download_release(release: Dict, dest: Optional[str] = None,
+                     platform_override: Optional[str] = None,
+                     force: bool = False) -> str:
     """
     Download and extract a release for the current platform
     
@@ -140,9 +141,11 @@ def download_release(release: Dict, dest: Optional[str] = None,
     
     # Check if already installed
     if os.path.exists(dest) and os.path.exists(os.path.join(dest, 'VERSION.txt')):
-        print(f"Release {version_str} already installed at {dest}")
-        return dest
-    
+        if not force:
+            print(f"Release {version_str} already installed at {dest}")
+            return dest
+        shutil.rmtree(dest)
+
     if not os.path.exists(dest):
         os.makedirs(dest)
     
@@ -185,49 +188,52 @@ def _post_install(plat: str, dest: str):
         pass
 
 
-def install_latest(org: str = DEFAULT_ORG, repo: str = DEFAULT_REPO, 
-                   dest: Optional[str] = None) -> str:
+def install_latest(org: str = DEFAULT_ORG, repo: str = DEFAULT_REPO,
+                   dest: Optional[str] = None, force: bool = False) -> str:
     """
     Download and install the latest release
-    
+
     Parameters:
         org: GitHub organization
         repo: Repository name
         dest: Destination directory
-    
+        force: Force reinstall even if already installed
+
     Returns:
         Path to installation directory
     """
     release = latest_release(org=org, repo=repo)
     if not release:
         raise ValueError("No releases found")
-    
-    return download_release(release, dest=dest)
+
+    return download_release(release, dest=dest, force=force)
 
 
-def install_version(version: str, org: str = DEFAULT_ORG, 
-                    repo: str = DEFAULT_REPO, dest: Optional[str] = None) -> str:
+def install_version(version: str, org: str = DEFAULT_ORG,
+                    repo: str = DEFAULT_REPO, dest: Optional[str] = None,
+                    force: bool = False) -> str:
     """
     Download and install a specific version
-    
+
     Parameters:
         version: Version tag (with or without 'v' prefix)
         org: GitHub organization
         repo: Repository name
         dest: Destination directory
-    
+        force: Force reinstall even if already installed
+
     Returns:
         Path to installation directory
     """
     # Ensure version has 'v' prefix for tag lookup
     if not version.startswith('v'):
         version = f'v{version}'
-    
+
     release = get_release_by_tag(version, org=org, repo=repo)
     if not release:
         raise ValueError(f"Release {version} not found")
-    
-    return download_release(release, dest=dest)
+
+    return download_release(release, dest=dest, force=force)
 
 
 def list_available_versions(org: str = DEFAULT_ORG,

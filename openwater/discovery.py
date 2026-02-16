@@ -24,6 +24,8 @@ def _lib_path():
   result = os.path.join(OW_BIN,'libopenwater')
   if sys.platform=='win32':
     result += '.dll'
+  elif sys.platform=='darwin':
+    result += '.dylib'
   else:
     result += '.so'
   return result

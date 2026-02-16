@@ -40,10 +40,10 @@ def install(args):
     try:
         if args.version:
             print(f"Installing version {args.version}...")
-            dest = releases.install_version(args.version, dest=args.dest)
+            dest = releases.install_version(args.version, dest=args.dest, force=args.force)
         else:
             print("Installing latest version...")
-            dest = releases.install_latest(dest=args.dest)
+            dest = releases.install_latest(dest=args.dest, force=args.force)
         
         print(f"\n✓ Successfully installed to: {dest}")
         print(f"\nTo use this installation, add to your PATH or set OPENWATER_BIN:")
@@ -82,6 +82,7 @@ Examples:
     install_parser = subparsers.add_parser('install', help='Install a release')
     install_parser.add_argument('--version', help='Version to install (default: latest)')
     install_parser.add_argument('--dest', help='Installation directory')
+    install_parser.add_argument('--force', action='store_true', help='Force reinstall even if already installed')
     install_parser.set_defaults(func=install)
     
     args = parser.parse_args()
