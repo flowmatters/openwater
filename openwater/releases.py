@@ -293,7 +293,7 @@ def list_installed(dest: Optional[str] = None) -> List[Dict]:
     return results
 
 
-def use(version: str, dest: Optional[str] = None) -> List[str]:
+def use(version: str, dest: Optional[str] = None):
     """
     Activate an installed release by version string.
 
@@ -303,9 +303,6 @@ def use(version: str, dest: Optional[str] = None) -> List[str]:
         version: Version string (e.g. '1.0.0+abc123.def456') matching the
                  installation directory name. A 'v' prefix is stripped automatically.
         dest: Base installations directory (defaults to ~/.openwater/installations)
-
-    Returns:
-        List of discovered model names.
 
     Raises:
         ValueError: If the version is not installed.
@@ -323,11 +320,12 @@ def use(version: str, dest: Optional[str] = None) -> List[str]:
         )
 
     discovery.set_exe_path(install_path)
-    return discovery.discover()
+    discovery.discover()
+    print(f"Using OpenWater Core {version}")
 
 
 def use_latest(dest: Optional[str] = None, install: bool = False,
-               org: str = DEFAULT_ORG, repo: str = DEFAULT_REPO) -> List[str]:
+               org: str = DEFAULT_ORG, repo: str = DEFAULT_REPO):
     """
     Activate the latest installed release, or optionally install it first.
 
@@ -339,15 +337,11 @@ def use_latest(dest: Optional[str] = None, install: bool = False,
         org: GitHub organization (used when install=True)
         repo: Repository name (used when install=True)
 
-    Returns:
-        List of discovered model names.
-
     Raises:
         ValueError: If no releases are installed and install is False.
     """
     if install:
         path = install_latest(org=org, repo=repo, dest=dest)
-        # Extract version from the installation path
         version = os.path.basename(path)
         return use(version, dest=dest)
 
@@ -358,6 +352,8 @@ def use_latest(dest: Optional[str] = None, install: bool = False,
             "or pass install=True to download and install automatically."
         )
 
-    latest = installed[-1]
-    return use(latest.get('version', os.path.basename(latest['path'])),
-               dest=dest)
+    # Sort by published date to find the newest installation
+    installed.sort(key=lambda r: r.get('published', ''), reverse=True)
+    latest = installed[0]
+    use(latest.get('version', os.path.basename(latest['path'])),
+        dest=dest)
