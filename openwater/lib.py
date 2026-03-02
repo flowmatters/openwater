@@ -101,6 +101,9 @@ def _create_model_func(model_name,description):
             ctypes.c_bool(init_states),
             ctypes.create_string_buffer(bytes(cpu_profile, 'ascii'))]
 
+    if _the_library is None:
+      raise RuntimeError("Openwater core library not loaded. Cannot run model.")
+
     _the_library.RunSingleModel(*call)
     return [outputs[:,i,:] for i in range(len(description['Outputs']))] + \
            [states[:,i] for i in range(len(description['States']))]
@@ -154,6 +157,8 @@ def _create_model_func(model_name,description):
               *_conv(tmp_outputs),
               ctypes.c_bool(init_states),
               ctypes.create_string_buffer(bytes(cpu_profile, 'ascii'))]
+      if _the_library is None:
+        raise RuntimeError("Openwater core library not loaded. Cannot run model.")
       _the_library.RunSingleModel(*call)
       dest_states[:,:,i] = initial_states
       outputs[:,:,i] = tmp_outputs[:,:,0] #[:,:,i].reshape(n_cells,outputs.shape[1],1)
