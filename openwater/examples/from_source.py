@@ -174,6 +174,10 @@ def merge_storage_tables(directory,fsvs,fsls):
         for outlet in node_outlets:
             release_curve = read_csv(f'storage_release_{node}_{outlet}')
             levels = levels.union(set(release_curve.level))
+            # if release_curve doesn't have an entry for a 0 release at first level of LVA, add it in
+            if release_curve.level.iloc[0] > lva.index.min():
+                logger.warning('No zero release row in storage release curve: %s outlet %s'%(node,outlet))
+                release_curve = pd.concat([pd.DataFrame([{'level':lva.index.min(),'minimum':0,'maximum':0}]),release_curve], ignore_index=True)
             release_curve = release_curve.set_index('level')
             release_curves.append(release_curve)
         levels = sorted(levels)
