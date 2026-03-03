@@ -718,6 +718,8 @@ class FileBasedModelConfigurationProvider(object):
     def __init__(self,path,climate_patterns,time_period=None):
         self.data_path = path
         self.climate_patterns = climate_patterns
+        if time_period is None:
+           time_period = self.detect_time_period()
         self.time_period = time_period
 
         self.inflow_fill = 0.0
@@ -767,6 +769,13 @@ class FileBasedModelConfigurationProvider(object):
             data['link_name'] = data['NetworkElement']
 
         return data
+
+    def detect_time_period(self):
+        example_results = self._load_csv('Results/downstream_flow_volume')
+        if example_results is not None:
+            logger.info(f'Detected time period from results: {example_results.index[0]} to {example_results.index[-1]}')
+            return example_results.index
+        return None
 
     def _load_all_csvs(self,prefix):
         files = [os.path.basename(fn) for fn in self._find_files(f'{prefix}*.csv*')]
@@ -1215,10 +1224,14 @@ def build_main(builder,model,timeperiod,openwater=None,existing=False,run=False,
 
   source = os.path.abspath(os.path.join(kwargs.get('extractedfiles','.'),model))
 
-  time_period = pd.date_range(timeperiod[0],timeperiod[1],freq=kwargs.get('timestep','1d'))
   model_obj, meta, network = builder(source,existing=model_file)
 
   write_model_and_metadata(model_fn,model_obj,meta,network)
+
+  if timeperiod is None:
+     timeperiod = [meta['start'],meta['end']]
+
+  time_period = pd.date_range(timeperiod[0],timeperiod[1],freq=kwargs.get('timestep','1d'))
 
   if run:
     model_obj.run(time_period,overwrite=True,verbose=True)
