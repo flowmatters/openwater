@@ -157,7 +157,7 @@ def merge_storage_tables(directory,fsvs,fsls):
         lva = lva.drop_duplicates(subset='volume',keep='last').reset_index()
         if min(lva.volume) > 0:
             logger.warning('No zero row in storage LVA: %s'%node)
-            lva = lva.append({'volume':0,'area':0,'level':0},ignore_index=True)
+            lva = pd.concat([lva, pd.DataFrame([{'volume':0,'area':0,'level':0}])], ignore_index=True)
         if min(lva.area) > 0:
             logger.warning('No zero minimum area in storage LVA: %s'%node)
             lva.loc[0,'area'] = 0
