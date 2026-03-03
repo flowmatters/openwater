@@ -83,8 +83,9 @@ class DataframeInput(object):
         return None
     
 class DataframeInputs(object):
-    def __init__(self):
+    def __init__(self,allow_nans=False):
         self._inputs = {}
+        self._allow_nans = allow_nans
     
     def inputter(self,df,input_name,col_format,model=None,**kwargs):
         '''
@@ -151,6 +152,13 @@ class DataframeInputs(object):
                     expected_len = grp['inputs'].shape[2]
                     if actual_len != expected_len:
                         raise Exception(f'Timeseries mismatch on {input_name} to {model_desc.name}. Expecting {expected_len} timesteps, but provided with {actual_len}')
+
+                    if np.isnan(data).any():
+                        if self._allow_nans:
+                            logger.warning(f'NaN values found in input data for {input_name} on node {node_name}, but _allow_nans is True. Data: {data}')
+                        else:
+                            logger.error(f'NaN values found in input data for {input_name} on node {node_name}. Data: {data}')
+                            raise Exception('NaN values found in input data')
                     grp['inputs'][run_idx,input_num,:] = data
 
             if (i%100 == 0) and (applied>0):
