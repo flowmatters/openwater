@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 EXPECTED_LINK_PREFIX='link for catchment '
+LVA_PRECISION = 4
 
 MODEL_LOOKUP = {}
 STANDARD_SOURCE_COLUMN_TRANSLATIONS = {
@@ -163,7 +164,7 @@ def merge_storage_tables(directory,fsvs,fsls):
 
         lva = lva.set_index('volume')
         if fsvs[node] not in lva.index:
-            lva.loc[fsvs[node],'level'] = round(fsls[node],3)
+            lva.loc[fsvs[node],'level'] = round(fsls[node],LVA_PRECISION)
         lva = lva.sort_index()
         lva = lva.interpolate()
         lva = lva.reset_index().set_index('level')
