@@ -654,10 +654,10 @@ def loss_parameteriser(builder):
         tbl = tbl.rename(columns={'inflow':'inputAmount','Inflow':'inputAmount','Loss':'loss'})
         if len(tbl[tbl.inputAmount==0])==0:
             logger.warning(f'No 0 entry in loss table for {k}')
-            tbl= tbl.append({'inputAmount':0,'loss':0},ignore_index=True).sort_values('inputAmount')
+            tbl= pd.concat([tbl, pd.DataFrame([{'inputAmount':0,'loss':0}])], ignore_index=True).sort_values('inputAmount')
         if max(tbl.inputAmount) < 1e6:
             logger.warning(f'Loss table for {k} lacks upper cap on inflow. Extending to 1e6')
-            tbl = tbl.append({'inputAmount':1e6,'loss':max(tbl.loss)},ignore_index=True)
+            tbl = pd.concat([tbl, pd.DataFrame([{'inputAmount':1e6,'loss':max(tbl.loss)}])], ignore_index=True)
         tbl['proportion'] = tbl['loss']/tbl['inputAmount']
         tbl = tbl.fillna(0)
         adjusted_losses[k] = tbl[['inputAmount','proportion']]
