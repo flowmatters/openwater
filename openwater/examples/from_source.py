@@ -651,7 +651,7 @@ def loss_parameteriser(builder):
             should_fail = True
             continue
 
-        tbl = tbl.rename(columns={'inflow':'inputAmount','Inflow':'inputAmount'})
+        tbl = tbl.rename(columns={'inflow':'inputAmount','Inflow':'inputAmount','Loss':'loss'})
         if len(tbl[tbl.inputAmount==0])==0:
             logger.warning(f'No 0 entry in loss table for {k}')
             tbl= tbl.append({'inputAmount':0,'loss':0},ignore_index=True).sort_values('inputAmount')
