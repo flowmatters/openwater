@@ -106,7 +106,7 @@ class OpenwaterResults(object):
       slices[dim_num] = dim_idx
     return dim_names, dims, run_map, slices, data
 
-  def time_series(self,model,variable:str,columns:str,aggregator=None,filter_tags={},**kwargs) -> pd.DataFrame:
+  def time_series(self,model,variable:str,columns,aggregator=None,filter_tags={},**kwargs) -> pd.DataFrame:
     '''
     Return a table (DataFrame) of time series results from the model.
 
@@ -114,7 +114,8 @@ class OpenwaterResults(object):
 
     * model - the model of interest
     * variable - a variable on the model, either an input or an output
-    * columns - a dimension of the model to use as the columns of the DataFrame
+    * columns - a dimension (or list/tuple of dimensions) of the model to use as the columns of the DataFrame.
+                When multiple dimensions are provided, the resulting DataFrame will have a MultiIndex on the columns.
     * aggregator - a function name (string) to apply when more than one data series matches a particular column (eg 'mean')
     * **kwargs - used to specify other dimensions to filter by
 
@@ -124,34 +125,43 @@ class OpenwaterResults(object):
     '''
     kwargs.update(filter_tags)
     dim_names, dims, run_map, slices, data = self._retrieve_data(model,variable,**kwargs)
-  
-    report_dim = dim_names.index(columns)
 
+    if isinstance(columns, str):
+      columns = [columns]
+    multi = len(columns) > 1
+
+    report_dims = [dim_names.index(c) for c in columns]
+    report_values = [dims[c][:run_map.shape[rd]] for c, rd in zip(columns, report_dims)]
+
+    import itertools
     all_sequences = {}
     found_match=False
-    for i,col_name in enumerate(dims[columns]):
-      if i == run_map.shape[report_dim]:
-        # Looks like a dummy tag value not present here
-        # HACK. Could be other things (eg incomplete set of tags)
-        continue
+    for combo in itertools.product(*[enumerate(vals) for vals in report_values]):
+      indices = [idx for idx, _ in combo]
+      names = tuple(name for _, name in combo)
 
       current_slices = slices[:]
-      current_slices[report_dim] = i
+      for rd, idx in zip(report_dims, indices):
+        current_slices[rd] = idx
       run_indices = run_map[tuple(current_slices)]
       run_indices = run_indices.flatten()
       run_indices = run_indices[run_indices>=0]
       col_data = data[run_indices,:]
+      col_key = names if multi else names[0]
       if col_data.shape[0]==1:
-        all_sequences[col_name] = col_data[0,:]
+        all_sequences[col_key] = col_data[0,:]
         found_match=True
       elif col_data.shape[0]>1:
-        all_sequences[col_name] = agg_fns[aggregator or 'mean'](col_data)
+        all_sequences[col_key] = agg_fns[aggregator or 'mean'](col_data)
         found_match=True
 
     if not found_match:
       raise Exception(f'No matching model nodes for model {model}, with column tag {columns} and constraint tags {kwargs}.')
 
-    return pd.DataFrame(all_sequences,index=self.time_period)
+    result = pd.DataFrame(all_sequences,index=self.time_period)
+    if multi:
+      result.columns = pd.MultiIndex.from_tuples(result.columns, names=columns)
+    return result
 
   def all_time_series(self,model,model_variable,**kwargs) -> pd.DataFrame:
     '''
