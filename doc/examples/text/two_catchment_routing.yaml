@@ -1,0 +1,121 @@
+ow_model: "1.0"
+label: "Two-catchment SimHyd with storage routing"
+
+time_period:
+  start: "2007-01-01"
+  end: "2010-12-31"
+
+data_sources:
+  rainfall: "Rain.csv"
+  pet: "PET.csv"
+
+# File-level parameter defaults — applied to any node with a matching
+# parameter name, unless overridden on the node itself.  DeltaT and
+# deadStorage have the same meaning on both DepthToRate and StorageRouting,
+# so setting them once here avoids repetition.
+defaults:
+  DeltaT: 86400
+  deadStorage: 0.0
+
+nodes:
+  # Inline outputs: single-destination links declared on the node
+  - name: S1
+    model: Simhyd
+    parameters:
+      baseflowCoefficient: 0.3
+      imperviousThreshold: 1.0
+      infiltrationCoefficient: 200.0
+      infiltrationShape: 3.0
+      interflowCoefficient: 0.1
+      perviousFraction: 0.9
+      rainfallInterceptionStoreCapacity: 1.5
+      rechargeCoefficient: 0.15
+      soilMoistureStoreCapacity: 320.0
+    initial_states:
+      SoilMoistureStore: 100.0
+      Groundwater: 10.0
+    timeseries:
+      rainfall:
+        data_source: rainfall
+        column: "A"
+      pet:
+        data_source: pet
+        column: "value"
+    outputs:
+      runoff: D1.input
+
+  - name: S2
+    model: Simhyd
+    parameters:
+      baseflowCoefficient: 0.25
+      imperviousThreshold: 1.5
+      infiltrationCoefficient: 180.0
+      infiltrationShape: 3.5
+      interflowCoefficient: 0.08
+      perviousFraction: 0.85
+      rainfallInterceptionStoreCapacity: 2.0
+      rechargeCoefficient: 0.2
+      soilMoistureStoreCapacity: 350.0
+    initial_states:
+      SoilMoistureStore: 120.0
+      Groundwater: 15.0
+    timeseries:
+      rainfall:
+        data_source: rainfall
+        column: "B"
+      pet:
+        data_source: pet
+        column: "value"
+    outputs:
+      runoff: D2.input
+
+  # DepthToRate nodes convert SimHyd runoff (mm) to flow (m^3/s)
+  # DeltaT comes from defaults; only area varies per node
+  - name: D1
+    model: DepthToRate
+    parameters:
+      area: 150000000.0
+    outputs:
+      outflow: R1.inflow
+
+  - name: D2
+    model: DepthToRate
+    parameters:
+      area: 200000000.0
+    outputs:
+      outflow: R2.inflow
+
+  # StorageRouting nodes — DeltaT and deadStorage come from defaults;
+  # area is only needed when using rainfall/evap inputs on the routing
+  # node, so it is omitted here (model-type default of 0 applies).
+  - name: R1
+    model: StorageRouting
+    parameters:
+      InflowBias: 0.5
+      RoutingConstant: 0.8
+      RoutingPower: 1.5
+    initial_states:
+      S: 0.0
+
+  - name: R2
+    model: StorageRouting
+    parameters:
+      InflowBias: 0.5
+      RoutingConstant: 1.0
+      RoutingPower: 1.4
+    initial_states:
+      S: 0.0
+
+  - name: R3
+    model: StorageRouting
+    parameters:
+      InflowBias: 0.5
+      RoutingConstant: 1.2
+      RoutingPower: 1.3
+    initial_states:
+      S: 0.0
+
+# Compact string links for the routing connections
+links:
+  - R1.outflow -> R3.inflow
+  - R2.outflow -> R3.lateral
