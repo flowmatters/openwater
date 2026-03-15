@@ -10,7 +10,7 @@ license = {text = "MIT License"}
 version = "0.1"
 readme = {file = "README.md", content-type = "text/markdown"}
 # dependencies = ["numpy", "pandas", "Cython", "graphviz", "networkx", "h5py", "rasterio", "taudem"]
-dependencies = ["numpy", "pandas", "ruamel.yaml>=0.17"]
+dependencies = ["numpy", "pandas", "ruamel.yaml>=0.17", "pint>=0.23"]
 authors = [
     {name = "Joel Rahman", email = "joel@flowmatters.com.au"}
 ]

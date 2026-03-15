@@ -39,14 +39,36 @@ class ModelDescription(object):
   def __init__(self,name,description):
     self.name = name
     self.description = description
+    self.group = description.get('Group', '')
     self.inputs = ReadOnlyObjectDict({i:i for i in description['Inputs']})
     self.outputs = ReadOnlyObjectDict({o:o for o in description['Outputs']})
     self.states = ReadOnlyObjectDict({s:s for s in description['States']})
     self.parameters = ReadOnlyObjectDict({p['Name']:p['Name'] for p in description['Parameters']})
+    self.input_units = ReadOnlyObjectDict({
+      v['Name']: v.get('Units','')
+      for v in (description['Inputs'].details if hasattr(description['Inputs'], 'details') else [])
+    })
+    self.output_units = ReadOnlyObjectDict({
+      v['Name']: v.get('Units','')
+      for v in (description['Outputs'].details if hasattr(description['Outputs'], 'details') else [])
+    })
+    self.parameter_details = ReadOnlyObjectDict({
+      p['Name']: p for p in description['Parameters']
+    })
+
+  def check_connection(self, output_name, other_model, input_name):
+    '''Check unit compatibility between this model's output and another model's input.
+
+    Returns 'exact_match', 'compatible', 'incompatible', or 'unspecified'.
+    '''
+    from .units import check_connection
+    out_units = self.output_units._d.get(output_name, '')
+    in_units = other_model.input_units._d.get(input_name, '')
+    return check_connection(out_units, in_units)
 
   def __str__(self):
     return 'Openwater Model Description: %s'%self.name
-  
+
   def __repr__(self):
     return self.__str__()
 

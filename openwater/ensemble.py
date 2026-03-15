@@ -85,9 +85,7 @@ def _create_model_func(name,description):
 
   model_func.__name__ = name
 
-  inputs_doc = _DOC_SEP.join(['%s: Input timeseries (default: zero length)'%i for i in description['Inputs']])
-  params_doc = _DOC_SEP.join(['%s: Mode; parameter (default: %f)'%(p['Name'],p['Default']) for p in description['Parameters']])
-  outputs_doc = _DOC_SEP.join(['%s : Output timeseries'%o for o in description['Outputs']])
-  model_func.__doc__ = _DOC_TEMPLATE%(inputs_doc,params_doc,outputs_doc)
+  from .discovery import _make_model_doc
+  _make_model_doc(model_func, description)
 
   setattr(thismodule,name,model_func)
