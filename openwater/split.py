@@ -139,4 +139,4 @@ def run_split_model(structure,params=None,init_states=None,inputs=None,dests=Non
                         **kwargs)
     init_states = states_f
     all_results.append(run_results)
-  return OpenwaterSplitResults(all_results,time_period=TIME_PERIOD)
+  return OpenwaterSplitResults(all_results)

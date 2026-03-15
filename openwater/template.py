@@ -30,7 +30,6 @@ TAG_MODEL='_model'
 TAG_RUN_INDEX='_run_idx'
 TAG_GENERATION='_generation'
 META_TAGS=[TAG_PROCESS,TAG_MODEL,TAG_RUN_INDEX,TAG_GENERATION]
-DEFAULT_TIMESTEPS=365
 LINK_TABLE_COLUMNS = ['%s_%s'%(n,c) for n in ['src','dest'] for c in ['generation','model','node','gen_node','var']]
 
 def connections_match(o,i):
@@ -707,7 +706,10 @@ class ModelGraph(object):
             return True
         return  {n:self._graph.nodes[n] for n in self._graph.nodes if tags_match(self._graph.nodes[n])}
 
-    def write_model(self,f,timesteps=DEFAULT_TIMESTEPS):
+    def write_model(self,f):
+        if self.time_period is None:
+            raise ValueError('time_period must be set before writing a model file. '
+                             'Pass time_period to ModelGraph() or set model.time_period directly.')
         init_timer('Write model file')
         init_timer('Write meta and dimensions')
         close = False
@@ -720,7 +722,7 @@ class ModelGraph(object):
         try:
             self._write_meta(h5f)
             report_time('Write model groups')
-            self._write_model_groups(h5f,timesteps)
+            self._write_model_groups(h5f)
             report_time('Write links')
             self._write_links(h5f)
             report_time('Write dimensions')
@@ -740,7 +742,8 @@ class ModelGraph(object):
         * verbose (boolean): Show verbose logging during simulation
         '''
         if model_fn:
-            self.write_model(model_fn,len(time_period))
+            self.time_period = time_period
+            self.write_model(model_fn)
         model_fn = self._last_write
 
         if not model_fn:
@@ -857,7 +860,7 @@ class ModelGraph(object):
 
         return dimension_values, attributes,model_instances
 
-    def _write_model_groups(self,f,n_timesteps):
+    def _write_model_groups(self,f):
         models_grp = f.create_group('MODELS')
         nodes = self._graph.nodes
 
@@ -1322,7 +1325,7 @@ def _run(time_period,model_fn=None,results_fn=None,**kwargs):
                 sleep(0.05)
 
     assert proc.returncode==0
-    return OpenwaterResults(model_fn,results_fn,time_period)
+    return OpenwaterResults(model_fn,results_fn)
 
 def run_simulation(model,output='model_outputs.h5',overwrite=False):
     import openwater.discovery

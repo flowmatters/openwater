@@ -707,7 +707,8 @@ def translate(src_veneer,dest_fn):
 
     model._parameteriser = p
 
-    model.write_model(dest_fn,simulation_length)
+    model.time_period = pd.date_range('2000-01-01',periods=simulation_length,freq='D')
+    model.write_model(dest_fn)
     return  model
 
 # class VeneerModelConfigurationProvider(object):
@@ -977,7 +978,6 @@ class SourceOpenwaterModelBuilder(object):
 
         logger.info('Configuring climate data')
         climate_inputs,time_period, delta_t = self.provider.climate_data()
-        simulation_length = len(time_period)
         p.append(climate_inputs)
 
         for dt_model in ['DepthToRate','StorageRouting','LumpedConstituentRouting']:
@@ -992,7 +992,8 @@ class SourceOpenwaterModelBuilder(object):
         model._parameteriser = p
 
         logger.info('Writing model')
-        model.write_model(dest_fn,simulation_length)
+        model.time_period = time_period
+        model.write_model(dest_fn)
         return  model
 
 class SourceTimeSeriesTranslator(object):

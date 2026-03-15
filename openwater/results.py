@@ -30,8 +30,16 @@ class OpenwaterResults(object):
     else:
       self.inputs = _open_h5(inputs)
 
-    self.time_period = time_period
+    self.time_period = self._read_time_period() or time_period
     self._dimensions={}
+
+  def _read_time_period(self):
+    if 'META' in self.model and 'timeperiod' in self.model['META']:
+      raw = [d for d in self.model['META']['timeperiod'][...]]
+      if isinstance(raw[0], bytes):
+        raw = [d.decode() for d in raw]
+      return pd.DatetimeIndex([pd.Timestamp.fromisoformat(d) for d in raw])
+    return None
 
   def close(self):
       self.results.close()
@@ -251,10 +259,10 @@ class OpenwaterSplitResults(object):
   def  __init__(self,splits,time_period=None):
     assert len(splits)
     if isinstance(splits[0],tuple):
-      self._results = [OpenwaterResults(model,res,None) for (model,res) in splits]
+      self._results = [OpenwaterResults(model,res) for (model,res) in splits]
     else:
       self._results = splits
-    self.time_period = time_period
+    self.time_period = self._results[0].time_period or time_period
 
   def close(self):
     for split in self._results:
@@ -326,6 +334,6 @@ def open_split_results(model_fn,results_pattern,input_pattern=None,time_period=N
   else:
     inputs_filenames = None
 
-  individual_result_objects = [OpenwaterResults(model_fn,res_file,time_period=None,inputs=None if inputs_filenames is None else inputs_filenames[ix])\
+  individual_result_objects = [OpenwaterResults(model_fn,res_file,inputs=None if inputs_filenames is None else inputs_filenames[ix])\
                                for ix,res_file in enumerate(results_filenames)]
-  return OpenwaterSplitResults(individual_result_objects)
+  return OpenwaterSplitResults(individual_result_objects,time_period=time_period)

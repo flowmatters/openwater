@@ -24,6 +24,7 @@ import pandas as pd
 N_LANDUSES=3
 N_LEVELS=8
 N_TIMESTEPS=500
+TIME_PERIOD = pd.date_range('2000-01-01',periods=N_TIMESTEPS,freq='D')
 LU_SCALE = 10**math.ceil(math.log10(N_TIMESTEPS)) * 10
 CATCHMENT_SCALE = 10**math.ceil(math.log10(N_LANDUSES)) #* LU_SCALE * 10
 N_CATCHMENTS = 2**N_LEVELS - 1
@@ -118,7 +119,8 @@ def test_split_ow_sim():
     params.append(rainfall_input)
     model._parameteriser = params
 
-    model.write_model(MODEL_FN,N_TIMESTEPS)
+    model.time_period = TIME_PERIOD
+    model.write_model(MODEL_FN)
     logger.debug(glob('*.h5'))
     cmd_line = '%s -verbose -overwrite %s %s'%(os.path.join(discovery._exe_path('sim')),MODEL_FN,RESULTS_FN)
     logger.info(f'Running: {cmd_line}')

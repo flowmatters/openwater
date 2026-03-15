@@ -33,9 +33,10 @@ class OpenwaterCatchmentModelResults(object):
       self.meta = json.load(fp)
     self.meta['fus'] = self.results.dim('cgu')
 
-    self.results.time_period = pd.date_range(self.meta['start'],
-                                             self.meta['end'],
-                                             freq=self.meta.get('timestep',None))
+    if self.results.time_period is None:
+      self.results.time_period = pd.date_range(self.meta['start'],
+                                               self.meta['end'],
+                                               freq=self.meta.get('timestep',None))
   def generation_model(self,c,fu):
     return 'EmcDwc','totalLoad'
 
