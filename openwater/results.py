@@ -30,7 +30,8 @@ class OpenwaterResults(object):
     else:
       self.inputs = _open_h5(inputs)
 
-    self.time_period = self._read_time_period() or time_period
+    tp = self._read_time_period()
+    self.time_period = tp if tp is not None else time_period
     self._dimensions={}
 
   def _read_time_period(self):
