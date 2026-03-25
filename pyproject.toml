@@ -32,6 +32,7 @@ Homepage = "https://github.com/flowmatters/openwater"
 
 [project.scripts]
 ow-run = "openwater.cli_run:main"
+ow-releases = "openwater.cli_releases:main"
 
 [project.optional-dependencies]
 test = ["pytest"]
