@@ -4,6 +4,8 @@ from . import nodes as node_types
 import pandas as pd
 import numpy as np
 from glob import glob
+import logging
+logger = logging.getLogger(__name__)
 
 temporal_agg_fns = {
   'sum':lambda a: a.sum(axis=1),
@@ -31,7 +33,11 @@ class OpenwaterResults(object):
       self.inputs = _open_h5(inputs)
 
     tp = self._read_time_period()
+    if tp is not None and time_period is not None:
+      logger.warning('Time period found in results metadata (%s), but time_period argument also provided. Using time period from metadata.',res_file)
     self.time_period = tp if tp is not None else time_period
+    if self.time_period is None:
+      logger.warning('No time period found in results metadata (%s), and no time_period argument provided. Time series results will not have a time index.',res_file)
     self._dimensions={}
 
   def _read_time_period(self):
