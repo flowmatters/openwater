@@ -304,13 +304,18 @@ class OpenwaterSplitResults(object):
 
   def table(self,model,variable:str,rows:str,columns:str,temporal_aggregator:str='mean',aggregator:str=None,**kwargs) -> pd.DataFrame:
     '''
-    Return a table (DataFrame) of aggregated model results from the model.
+    Return a table (DataFrame) of aggregated model results from the model,
+    combining results across all time splits.
+
+    For temporal splits that partition the time axis:
+    - 'sum' aggregator: tables from each split are summed (sums are additive)
+    - 'mean' aggregator: tables are combined as a weighted mean by timestep count
 
     Parameters:
 
     * model - the model of interest
     * variable - a variable on the model, either an input or an output
-    * row - a dimension of the model to use as the rows of the DataFrame
+    * rows - a dimension of the model to use as the rows of the DataFrame
     * columns - a dimension of the model to use as the columns of the DataFrame
     * temporal_aggregator - a function name (string) to reduce the timeseries results to a single value (default='mean')
     * aggregator - a function name (string) to apply when more than one data series matches a particular row/column (eg 'mean')
@@ -322,7 +327,16 @@ class OpenwaterSplitResults(object):
 
     For dimensions (row, columns and kwargs), see dims_for_model
     '''
-    raise Exception('Not implemented')
+    split_tables = [s.table(model, variable, rows, columns, temporal_aggregator, aggregator, **kwargs)
+                    for s in self._results]
+    if temporal_aggregator == 'sum':
+      return sum(split_tables)
+    elif temporal_aggregator == 'mean':
+      weights = [len(s.time_period) for s in self._results]
+      total = sum(weights)
+      return sum(t * w for t, w in zip(split_tables, weights)) / total
+    else:
+      raise ValueError(f'Unsupported temporal_aggregator for split results: {temporal_aggregator}')
 
   def models(self) -> List[str]:
     return self._results[0].models()
