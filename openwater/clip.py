@@ -40,6 +40,25 @@ def diff_keys_and_types(grp1,grp2,prefix=''):
 
 
 def identify_models_to_keep(ow_mod, starting):
+    '''
+    Identify all model nodes needed to compute the given starting (end) nodes
+    by traversing upstream through the link table.
+
+    Parameters
+    ----------
+    ow_mod : ModelFile
+        The source model file.
+    starting : list of (str, int)
+        List of (model_type, run_index) tuples identifying the nodes of interest.
+        All upstream dependencies of these nodes will be included.
+
+    Returns
+    -------
+    nodes_to_keep : dict
+        {model_type: sorted list of run_indices} for all nodes to keep.
+    links_to_keep : DataFrame
+        Subset of the link table containing only links between kept nodes.
+    '''
     links = ow_mod.link_table()
     model_nodes_to_keep = {}
     links_to_keep = pd.DataFrame()
@@ -80,6 +99,26 @@ def identify_models_to_keep(ow_mod, starting):
     return model_nodes_to_keep,links_to_keep
 
 def renumber_links(links,nodes):
+    '''
+    Renumber link indices after subsetting to reflect the new node positions.
+
+    Adjusts node indices within each model type (so they are contiguous starting
+    from 0) and shifts generation numbers so the minimum generation becomes 0.
+
+    Parameters
+    ----------
+    links : DataFrame
+        Link table with columns src_generation, src_model, src_node, src_gen_node,
+        dest_generation, dest_model, dest_node, dest_gen_node, etc.
+    nodes : dict
+        {model_type: sorted list of original run_indices} — the kept nodes.
+        New indices are assigned based on position in these lists.
+
+    Returns
+    -------
+    DataFrame
+        Copy of links with renumbered node, generation, and gen_node columns.
+    '''
     links = links.copy()
     min_gen = min(links.src_generation)
     def renumber_node_set(mt):
@@ -122,6 +161,24 @@ def check_model_table_consistency(df):
             assert len(set(sss.gen_node))==1
 
 def copy_parameters(mod,src_grp,dest_grp,nodes):
+  '''
+  Copy parameters for a subset of nodes, handling dimensioned (array) parameters.
+
+  For models with dimensioned parameters (e.g. parameters that vary across
+  sub-daily timesteps or constituent types), the parameter array layout is
+  recalculated to match the subset of nodes.
+
+  Parameters
+  ----------
+  mod : str
+      Model type name.
+  src_grp : h5py.Group
+      Source model group containing the full 'parameters' dataset.
+  dest_grp : h5py.Group
+      Destination model group to write the subset parameters to.
+  nodes : list of int
+      Run indices of the nodes to copy.
+  '''
   desc = getattr(node_types,mod).description
   subset = src_grp['parameters'][:,nodes]
   dimensions = desc.get('Dimensions',[])
@@ -141,6 +198,30 @@ def copy_parameters(mod,src_grp,dest_grp,nodes):
 
 
 def clip(model,dest_fn,end_nodes):
+  '''
+  Create a clipped model file containing only the nodes needed to compute
+  the specified end nodes.
+
+  Traverses the model DAG upstream from `end_nodes` to identify all required
+  nodes, then writes a new HDF5 model file with the subset of nodes,
+  parameters, states, inputs, dimensions, and links.
+
+  Parameters
+  ----------
+  model : ModelFile
+      The source model file.
+  dest_fn : str
+      Path for the output clipped HDF5 file.
+  end_nodes : list of (str, int)
+      List of (model_type, run_index) tuples identifying the downstream nodes
+      of interest. Use `resolve_end_nodes` to convert tag-based queries to
+      this format.
+
+  See Also
+  --------
+  clip_by_tags : Convenience wrapper that accepts tag-based queries directly.
+  resolve_end_nodes : Convert tag queries to (model_type, run_index) tuples.
+  '''
   nodes_to_keep, links_to_keep = identify_models_to_keep(model,end_nodes)
   node_count = sum([len(v) for v in nodes_to_keep.values()])
   logger.info(f'Keeping {node_count} nodes and {len(links_to_keep)} links')
@@ -174,6 +255,9 @@ def clip(model,dest_fn,end_nodes):
   new_mod = h5.File(dest_fn,'w')
   meta = new_mod.create_group('META')
   meta_models = string_data_set(meta,'models',sorted(nodes_to_keep.keys()))
+  for key in fp['META'].keys():
+    if key != 'models' and key not in meta:
+      fp['META'].copy(key, meta)
   model_grp = new_mod.create_group('MODELS')
   dim_grp = new_mod.create_group('DIMENSIONS')
 
@@ -254,3 +338,69 @@ def clip(model,dest_fn,end_nodes):
   new_mod.create_dataset('LINKS',data=np.array(new_link_vals,dtype=np.uint32))
 
   new_mod.close()
+
+
+def resolve_end_nodes(model_file, model_type=None, **tags):
+  '''
+  Resolve tag-based queries into (model_type, run_index) tuples suitable
+  for passing to `clip` or `identify_models_to_keep`.
+
+  Parameters
+  ----------
+  model_file : ModelFile
+      The source model file.
+  model_type : str, list of str, or None
+      Model type(s) to search. If None, searches all model types in the file.
+  **tags
+      Dimension values to filter by (e.g. catchment='outlet_catchment').
+
+  Returns
+  -------
+  list of (str, int)
+      List of (model_type, run_index) tuples for matching nodes.
+  '''
+  if model_type is None:
+    model_types = [m.decode() if isinstance(m, bytes) else m for m in model_file._h5f['META']['models'][...]]
+  elif isinstance(model_type, str):
+    model_types = [model_type]
+  else:
+    model_types = list(model_type)
+
+  result = []
+  for mt in model_types:
+    try:
+      nodes = model_file.nodes_matching(mt, **tags)
+    except Exception:
+      continue
+    for idx in nodes._run_idx:
+      result.append((mt, int(idx)))
+  return result
+
+
+def clip_by_tags(model_file, dest_fn, model_type=None, **tags):
+  '''
+  Clip a model to keep only nodes upstream of nodes matching the given tags.
+
+  Convenience wrapper around `clip` that resolves tag-based queries to
+  node indices automatically.
+
+  Parameters
+  ----------
+  model_file : ModelFile
+      The source model file.
+  dest_fn : str
+      Path for the output clipped HDF5 file.
+  model_type : str, list of str, or None
+      Model type(s) for the end nodes. If None, searches all model types.
+  **tags
+      Dimension values to filter end nodes by (e.g. catchment='outlet_catchment').
+
+  See Also
+  --------
+  clip : Low-level clip function accepting (model_type, run_index) tuples.
+  resolve_end_nodes : Resolve tags to node tuples without clipping.
+  '''
+  end_nodes = resolve_end_nodes(model_file, model_type=model_type, **tags)
+  if not end_nodes:
+    raise ValueError(f'No nodes found matching model_type={model_type}, tags={tags}')
+  return clip(model_file, dest_fn, end_nodes)
