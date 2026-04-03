@@ -164,6 +164,7 @@ class DataframeInputs(object):
             if (i%100 == 0) and (applied>0):
                 logger.info('Processing %s. Applied %d inputs ()',node_name,applied)
             i += 1
+        logger.info('Applied %d timeseries inputs to %s',applied,model_desc.name)
 
 class SingleTimeseriesInput(object):
     def __init__(self,series,the_input,model=None,**tags):
