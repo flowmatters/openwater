@@ -27,6 +27,8 @@ from .clip import (
     string_data_set,
     check_model_table_consistency,
     resolve_end_nodes,
+    read_node_slice,
+    _copy_node_slice,
 )
 
 logger = logging.getLogger(__name__)
@@ -342,11 +344,12 @@ def substitute(model_file, prior_results, dest_fn,
             if 'parameters' in src_grp:
                 copy_parameters(mod, src_grp, grp, nodes)
             if 'states' in src_grp:
-                grp.create_dataset('states', data=src_grp['states'][nodes, :])
+                _copy_node_slice(src_grp['states'], grp, 'states', nodes)
 
             # Build inputs: start from original, then overwrite boundary link slots
             if 'inputs' in src_grp:
-                inputs_data = src_grp['inputs'][nodes, :, :].copy()
+                # read_node_slice returns a numpy array (already a copy).
+                inputs_data = np.asarray(read_node_slice(src_grp['inputs'], nodes))
             else:
                 # No original inputs — create zeros if we have substitutions for this model
                 desc = getattr(node_types, mod).description

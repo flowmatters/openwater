@@ -293,3 +293,106 @@ class TestClipByTags:
         dest = str(tmp_path / 'clipped.h5')
         with pytest.raises(ValueError, match='No nodes found'):
             clip_by_tags(model_file, dest, model_type='MockRouting', catchment='nonexistent')
+
+
+# ---------------------------------------------------------------------------
+# Regression: stateless model types have ``states`` shape (N, 0). h5py's
+# fancy indexing raises "Dataspaces don't have hyperslab selections" when a
+# trailing dim has size 0, so clip must handle the zero-width case
+# explicitly. MockGeneration declares no States, producing (1, 0).
+# ---------------------------------------------------------------------------
+
+class TestClipZeroWidthStates:
+    def test_clip_keeps_stateless_model(self, model_file, tmp_path):
+        """Clipping to a MockGeneration end node pulls MockRR(0) upstream
+        and keeps MockGeneration(0) itself — the latter has a zero-width
+        states dataset that blows up h5py fancy indexing without our
+        workaround."""
+        dest = str(tmp_path / 'clipped_gen.h5')
+        clip(model_file, dest, [('MockGeneration', 0)])
+
+        with h5py.File(dest, 'r') as f:
+            assert 'MockGeneration' in f['MODELS']
+            states = f['MODELS']['MockGeneration']['states']
+            # 1 node kept, 0 states per node — same empty width preserved.
+            assert states.shape == (1, 0)
+            # Upstream model should still be present.
+            assert 'MockRR' in f['MODELS']
+
+    def test_clip_by_tags_keeps_stateless_model(self, model_file, tmp_path):
+        """Same regression via the tag-based convenience wrapper."""
+        dest = str(tmp_path / 'clipped_gen_tags.h5')
+        clip_by_tags(model_file, dest, model_type='MockGeneration', catchment='catchA')
+
+        with h5py.File(dest, 'r') as f:
+            assert 'MockGeneration' in f['MODELS']
+            assert f['MODELS']['MockGeneration']['states'].shape == (1, 0)
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for the read/copy helpers. These lock the fast-path behaviour
+# down even on h5py versions where fancy-indexing a zero-width dataset
+# happens to succeed — we never want the buggy path attempted.
+# ---------------------------------------------------------------------------
+
+class TestNodeSliceHelpers:
+    def test_read_node_slice_zero_width_trailing_dim(self, tmp_path):
+        from openwater.clip import read_node_slice
+        path = str(tmp_path / 'src.h5')
+        with h5py.File(path, 'w') as f:
+            f.create_dataset('states', data=np.zeros((3, 0)))
+        with h5py.File(path, 'r') as f:
+            arr = read_node_slice(f['states'], [0, 2])
+        assert arr.shape == (2, 0)
+
+    def test_read_node_slice_empty_nodes(self, tmp_path):
+        from openwater.clip import read_node_slice
+        path = str(tmp_path / 'src.h5')
+        with h5py.File(path, 'w') as f:
+            f.create_dataset('states', data=np.zeros((3, 4)))
+        with h5py.File(path, 'r') as f:
+            arr = read_node_slice(f['states'], [])
+        assert arr.shape == (0, 4)
+
+    def test_read_node_slice_normal_case_preserves_values(self, tmp_path):
+        from openwater.clip import read_node_slice
+        path = str(tmp_path / 'src.h5')
+        payload = np.arange(12).reshape((3, 4)).astype(np.float64)
+        with h5py.File(path, 'w') as f:
+            f.create_dataset('states', data=payload)
+        with h5py.File(path, 'r') as f:
+            arr = read_node_slice(f['states'], [0, 2])
+        np.testing.assert_array_equal(arr, payload[[0, 2], :])
+
+    def test_copy_node_slice_zero_width_skips_h5py_indexing(self, tmp_path):
+        """The fast path must not attempt fancy indexing on the src dataset
+        — that's the exact h5py call that raises on buggy versions.
+        Substitute a poisoned stand-in for the source dataset and prove
+        _copy_node_slice doesn't touch its __getitem__."""
+        from openwater.clip import _copy_node_slice
+
+        class Poisoned:
+            shape = (3, 0)
+            dtype = np.float64
+
+            def __getitem__(self, key):
+                raise AssertionError(
+                    'zero-width slice reached h5py fancy indexing')
+
+        dst_path = str(tmp_path / 'dst.h5')
+        with h5py.File(dst_path, 'w') as dst:
+            _copy_node_slice(Poisoned(), dst, 'states', [0, 2])
+        with h5py.File(dst_path, 'r') as dst:
+            assert dst['states'].shape == (2, 0)
+
+    def test_copy_node_slice_inputs_three_dim_normal(self, tmp_path):
+        from openwater.clip import _copy_node_slice
+        src_path = str(tmp_path / 'src.h5')
+        dst_path = str(tmp_path / 'dst.h5')
+        payload = np.arange(2 * 3 * 4).reshape((2, 3, 4)).astype(np.float64)
+        with h5py.File(src_path, 'w') as f:
+            f.create_dataset('inputs', data=payload)
+        with h5py.File(src_path, 'r') as src, h5py.File(dst_path, 'w') as dst:
+            _copy_node_slice(src['inputs'], dst, 'inputs', [1])
+        with h5py.File(dst_path, 'r') as dst:
+            np.testing.assert_array_equal(dst['inputs'][...], payload[[1], :, :])

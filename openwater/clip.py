@@ -197,6 +197,41 @@ def copy_parameters(mod,src_grp,dest_grp,nodes):
     dest_grp['parameters'][dest[0]:dest[1],:] = subset[src[0]:src[1],:]
 
 
+def read_node_slice(src_ds, nodes):
+    '''
+    Read a node-indexed slice from ``src_ds`` into an in-memory numpy array.
+
+    Handles the degenerate case where a trailing dimension of the dataset has
+    size 0 (e.g. a stateless model with ``states`` shape ``(N, 0)``, or no
+    timesteps), or where ``nodes`` is empty. h5py raises
+    "Dataspaces don't have hyperslab selections" whenever fancy-indexing
+    produces a zero-size selection, so we return a correctly-shaped empty
+    array in that case instead of hitting h5py.
+    '''
+    src_shape = src_ds.shape
+    if not len(nodes) or any(d == 0 for d in src_shape[1:]):
+        return np.empty((len(nodes),) + src_shape[1:], dtype=src_ds.dtype)
+    # Slice over axis 0 only; subsequent axes use ':' via the tuple below.
+    index = (list(nodes),) + (slice(None),) * (len(src_shape) - 1)
+    return src_ds[index]
+
+
+def _copy_node_slice(src_ds, dest_grp, name, nodes):
+    '''
+    Copy a node-indexed slice from ``src_ds`` into a new dataset ``name``
+    under ``dest_grp``. Wraps :func:`read_node_slice` with special-case
+    handling for zero-size slices (where we create an empty dataset of the
+    correct shape directly rather than writing an empty numpy array, which
+    h5py can also choke on).
+    '''
+    src_shape = src_ds.shape
+    if not len(nodes) or any(d == 0 for d in src_shape[1:]):
+        dest_shape = (len(nodes),) + src_shape[1:]
+        dest_grp.create_dataset(name, shape=dest_shape, dtype=src_ds.dtype)
+        return
+    dest_grp.create_dataset(name, data=read_node_slice(src_ds, nodes))
+
+
 def clip(model,dest_fn,end_nodes):
   '''
   Create a clipped model file containing only the nodes needed to compute
@@ -293,11 +328,11 @@ def clip(model,dest_fn,end_nodes):
       src_grp = fp['MODELS'][mod]
       logger.debug(f'{mod}, {list(src_grp.keys())}')
       if 'inputs' in src_grp:
-          grp.create_dataset('inputs',data=src_grp['inputs'][nodes,:,:])
+          _copy_node_slice(src_grp['inputs'], grp, 'inputs', nodes)
       if 'parameters' in src_grp:
           copy_parameters(mod,src_grp,grp,nodes)
       if 'states' in src_grp:
-          grp.create_dataset('states',data=src_grp['states'][nodes,:])
+          _copy_node_slice(src_grp['states'], grp, 'states', nodes)
 
   logger.info('Creating model map tables')
   for mod,model_map_with_dims in new_model_maps.items():

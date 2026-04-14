@@ -376,6 +376,22 @@ class TestSubstitute:
             expected = np.arange(n_ts) * 2.0 + np.arange(n_ts) * 3.0
             np.testing.assert_array_almost_equal(rt_inputs[0, 0, :], expected)
 
+    def test_keeps_stateless_model_states_shape(self, model_and_results, tmp_path):
+        """Regression: SubGeneration has ``states`` shape (1, 0). h5py fancy
+        indexing blows up on zero-width trailing dims with
+        "Dataspaces don't have hyperslab selections", so substitute must
+        preserve stateless models without crashing on the states copy."""
+        mf, results_path, _ = model_and_results
+        dest = str(tmp_path / 'substituted_stateless.h5')
+        # Removing SubRR forces SubGeneration (stateless) to be kept — this
+        # is the path that triggers the zero-width read on states.
+        substitute(mf, results_path, dest, model_types_to_remove=['SubRR'])
+
+        with h5py.File(dest, 'r') as f:
+            assert 'SubGeneration' in f['MODELS']
+            states = f['MODELS']['SubGeneration']['states']
+            assert states.shape == (1, 0)
+
     def test_substitute_creates_inputs_for_model_without_inputs_dataset(self, tmp_path):
         """When a kept model has no 'inputs' dataset but receives boundary
         substitutions, inputs should be created from zeros + injected data."""
