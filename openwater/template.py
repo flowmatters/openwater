@@ -1233,7 +1233,7 @@ class ModelFile(object):
             self.close()
             self._h5f = h5py.File(self.filename,'r')
 
-    def run(self,time_period,results_fn=None,**kwargs):
+    def run(self,time_period=None,results_fn=None,**kwargs):
         '''
 
         kwargs: Arguments and fflags to pass directly to ow-sim, including:
@@ -1325,7 +1325,7 @@ def _run(time_period,model_fn=None,results_fn=None,**kwargs):
                 sleep(0.05)
 
     assert proc.returncode==0
-    return OpenwaterResults(model_fn,results_fn)
+    return OpenwaterResults(model_fn,results_fn,time_period=time_period)
 
 def run_simulation(model,output='model_outputs.h5',overwrite=False):
     import openwater.discovery
