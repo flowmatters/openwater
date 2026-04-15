@@ -1227,12 +1227,12 @@ def build_main(builder,model,timeperiod,openwater=None,existing=False,run=False,
 
   model_obj, meta, network = builder(source,existing=model_file)
 
-  write_model_and_metadata(model_fn,model_obj,meta,network)
-
   if timeperiod is None:
      timeperiod = [meta['start'],meta['end']]
 
   time_period = pd.date_range(timeperiod[0],timeperiod[1],freq=kwargs.get('timestep','1d'))
+  model_obj.time_period = time_period
+  write_model_and_metadata(model_fn,model_obj,meta,network)
 
   if run:
     model_obj.run(time_period,overwrite=True,verbose=True)
