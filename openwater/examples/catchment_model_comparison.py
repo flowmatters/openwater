@@ -6,6 +6,8 @@ from scipy import stats
 from glob import glob
 from itertools import product
 from multiprocessing import Pool
+from functools import partial
+from datetime import timedelta
 from .const import *
 from datetime import datetime
 from openwater.discovery import set_exe_path, discover
@@ -28,6 +30,17 @@ SUM_THRESHOLD=2.5e-2*28*365
 
 def sum_squares(l1,l2):
     return sum((np.array(l1)-np.array(l2))**2)
+
+def safe_r_squared(x,y,label=''):
+    # stats.linregress raises ValueError when either input has zero variance
+    # (all values identical). Return NaN instead of letting the worker crash.
+    x_arr = np.asarray(x)
+    y_arr = np.asarray(y)
+    if len(x_arr) < 2 or np.ptp(x_arr) == 0 or np.ptp(y_arr) == 0:
+        logger.warning(f'Skipping linregress{(" for "+label) if label else ""}: constant or empty series (n={len(x_arr)}, x_range={np.ptp(x_arr) if len(x_arr) else 0}, y_range={np.ptp(y_arr) if len(y_arr) else 0})')
+        return np.nan
+    _,_,r_value,_,_ = stats.linregress(x_arr,y_arr)
+    return r_value**2
 
 class SourceImplementation(object):
     def __init__(self, directory):
@@ -249,8 +262,7 @@ class SourceOWComparison(object):
                             orig_scaled = (orig_sc*PER_SECOND_TO_PER_DAY)
                             ow_scaled = (ow_sc*PER_SECOND_TO_PER_DAY)
                             res['ssquares'] = sum_squares(orig_scaled,ow_scaled)
-                            _,_,r_value,_,_ = stats.linregress(orig_scaled,ow_scaled)
-                            res['r-squared'] = r_value**2
+                            res['r-squared'] = safe_r_squared(orig_scaled,ow_scaled,label=f'{sc}/{fu}/{e}')
                             res['sum-ow'] = ow_scaled.sum()
                             res['sum-orig'] = orig_scaled.sum()
                             res['delta'] = res['sum-orig'] - res['sum-ow']
@@ -325,9 +337,8 @@ class SourceOWComparison(object):
         if error:
             return {}#np.nan
 
-        _,_,r_value,_,_ = stats.linregress(orig,ow)
         res = {
-            'r-squared':r_value**2,
+            'r-squared':safe_r_squared(orig,ow,label=f'flow/{sc}'),
             'ssquares': sum_squares(orig,ow),
             'sum-ow': ow.sum(),
             'sum-orig': orig.sum()
@@ -391,8 +402,7 @@ class SourceOWComparison(object):
                 if ow_sc.sum()>0 or orig_sc.sum()>0:
                     orig_scaled = (orig_sc*PER_SECOND_TO_PER_DAY)
                     ow_scaled = (ow_sc*PER_SECOND_TO_PER_DAY)
-                    _,_,r_value,_,_ = stats.linregress(orig_scaled,ow_scaled)
-                    res['r-squared'] = r_value**2
+                    res['r-squared'] = safe_r_squared(orig_scaled,ow_scaled,label=f'{sc}/{c}')
                     res['ssquares'] = sum_squares(orig_scaled,ow_scaled)
                     res['sum-ow'] = ow_scaled.sum()
                     res['sum-orig'] = orig_scaled.sum()
@@ -411,28 +421,39 @@ def constituents_for_model(m):
   with ModelFile(fn) as mf:
     return mf._dimensions['constituent']
 
-def default_model_comparison(m,source_files,ow_dir,component=None,con=None):
-  return model_comparison(OpenwaterCatchmentModelResults,m,source_files,ow_dir,component,con)
+def default_model_comparison(m,source_files,ow_dir,component=None,con=None,warmup=0):
+  return model_comparison(OpenwaterCatchmentModelResults,m,source_files,ow_dir,component,con,warmup=warmup)
 
 def check_factors(df,factors=FACTORS[1:]):
     for f in factors:
         if np.nan in set(df[f]):
             logger.warning('!!! NaN in set of %s values'%f)
 
-def model_comparison(ow_results_class,m,source_files,ow_dir,component=None,con=None):
+def model_comparison(ow_results_class,m,source_files,ow_dir,component=None,con=None,warmup=0):
   ow_fn     = os.path.join(ow_dir,m)
-  logger.info(f'===== Comparing results for {m}/{component}/{con} from {source_files} and {ow_fn} =====')
+  logger.info(f'===== Comparing results for {m}/{component}/{con} from {source_files} and {ow_fn} (warmup={warmup}d) =====')
 
   ow     = ow_results_class(ow_fn+'.h5')
+
+  # Drop warmup period from the comparison window so initial-condition differences between
+  # implementations don't pollute the stats. `warmup` is in days.
+  full_period = ow.results.time_period
+  if warmup and warmup > 0 and full_period is not None and len(full_period):
+    cutoff = full_period[0] + timedelta(days=int(warmup))
+    comparison_period = full_period[full_period >= cutoff]
+    logger.info(f'- Comparison period after warmup: {comparison_period[0]} to {comparison_period[-1]} ({len(comparison_period)} steps)')
+  else:
+    comparison_period = full_period
 
   if '://' in source_files:
     source = SourceVeneerImplementation(source_files)
   else:
     source_fn = os.path.join(source_files,m)
     source = SourceImplementation(source_fn)
-    source.time_period = ow.time_period
+  source.time_period = comparison_period
 
   test   = ImplementationComparison(source,ow)
+  test.comparison.time_period = comparison_period
 
   regulated_links = ow.regulated_links()
   data_frames = []
@@ -489,13 +510,14 @@ def model_comparison(ow_results_class,m,source_files,ow_dir,component=None,con=N
   logger.info(f'===== Comparison {m}/{component}/{con} complete =====')
   return res
 
-def compare_all(comparison_fn,models,source_files,ow_dir,processes=1,component=None):
+def compare_all(comparison_fn,models,source_files,ow_dir,processes=1,component=None,warmup=0):
     model_constituents = [constituents_for_model(os.path.join(ow_dir,m)) for m in models]
     model_constituent_combos = sum([list(product([mod],cons)) for (mod,cons) in zip(models,model_constituents)],[])
-    water_quality_combos = [(mod,source_files,ow_dir,comp,con) for (mod,con),comp in product(model_constituent_combos,['Generation','Transport'])]
+    water_quality_combos = [(mod,source_files,ow_dir,comp,con) for (mod,con),comp in product(model_constituent_combos,['Transport','Generation'])]
 
     water_quantity_combos = [(mod,source_files,ow_dir,comp,None) for (mod,comp) in product(models,['Runoff','Routing'])]
-    combos = water_quality_combos + water_quantity_combos
+    # Biggest-first (LPT) scheduling: monolithic Runoff/Routing first, then Transport, then Generation.
+    combos = water_quantity_combos + water_quality_combos
 
     if component is not None:
       logger.info(f'Only comparing component={component}')
@@ -503,13 +525,17 @@ def compare_all(comparison_fn,models,source_files,ow_dir,processes=1,component=N
       combos = [c for c in combos if c[3]==component]
       logger.debug(f'After filter = {len(combos)}')
 
+    bound_fn = partial(comparison_fn,warmup=warmup) if warmup else comparison_fn
+
     if processes>1:
-        with Pool(processes=processes) as pool:
-            model_data = pool.starmap(comparison_fn,combos)
+        # maxtasksperchild=1 forces worker respawn after each combo, releasing
+        # pandas/h5py heap fragmentation that otherwise accumulates across tasks.
+        with Pool(processes=processes,maxtasksperchild=1) as pool:
+            model_data = pool.starmap(bound_fn,combos,chunksize=1)
     else :
         model_data = []
         for combo in combos:
-            model_data.append(comparison_fn(*combo))
+            model_data.append(bound_fn(*combo))
 
     return pd.concat(model_data)
 
@@ -596,6 +622,7 @@ def _arg_parser():
   parser.add_argument('--veneer',default=None,help='Path to a Veneer instance (live or saved) for results')
   parser.add_argument('--converted',default='.',help='Path to converted (openwater) model files')
   parser.add_argument('--component',default=None,help=f'Only compare results for defined component ({",".join(COMPONENTS)})')
+  parser.add_argument('--warmup',type=int,default=365,help='Number of days at the start of the record to exclude from comparisons (warmup period). Default: 365')
   parser.add_argument('models',nargs='+',help='Model names to compare')
   return parser
 
@@ -609,19 +636,21 @@ def compare_main(comparison_fn,models,**kwargs):
     raise Exception('Need at least one model')
   else:
     init_timer('Model comparison for %s'%(','.join(models)))
-    lbl = '-'.join(models)
+    lbl = models[0] if len(models)==1 else 'all-models'
 
   process_count = kwargs.get('processes',1)
   source_files = kwargs.get('veneer',None)
   if source_files is None:
     source_files = kwargs.get('extractedfiles','.')
 
+  warmup_days = int(kwargs.get('warmup',365) or 0)
   all_results = compare_all(comparison_fn=comparison_fn,
                             models=models,
                             processes=process_count,
                             source_files=source_files,
                             ow_dir=kwargs.get('converted','.'),
-                            component=kwargs.get('component',None))
+                            component=kwargs.get('component',None),
+                            warmup=warmup_days)
   all_results.to_csv('model-comparison-summary-%s-%s.csv'%(lbl,now.strftime('%Y%m%d-%H%M')))
 
 if __name__=='__main__':
