@@ -181,9 +181,9 @@ def merge_storage_tables(directory,fsvs,fsls):
             release_curve = release_curve.set_index('level')
             release_curves.append(release_curve)
         levels = sorted(levels)
-        release_curves = [tbl.reindex(levels).interpolate() for tbl in release_curves]
+        release_curves = [tbl.reindex(levels).interpolate(method='index') for tbl in release_curves]
         lva = lva.reindex(levels)
-        lva = lva.interpolate()
+        lva = lva.interpolate(method='index')
 
         node_table = reduce(lambda a,b: a+b,release_curves)
         node_table['volumes'] = lva.volume
