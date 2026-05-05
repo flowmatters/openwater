@@ -2,6 +2,7 @@
 Download and manage OpenWater Core releases from GitHub
 """
 import requests
+import re
 import sys
 import os
 import urllib.request
@@ -10,6 +11,8 @@ import zipfile
 import shutil
 from glob import glob
 from typing import Optional, List, Dict
+
+SEMVER_PREFIX_RE = re.compile(r'^\d+\.\d+\.\d+')
 
 RELEASES_URL = 'https://api.github.com/repos/{org}/{repo}/releases'
 DEST_RELATIVE = '~/.openwater/installations'
@@ -293,35 +296,106 @@ def list_installed(dest: Optional[str] = None) -> List[Dict]:
     return results
 
 
-def use(version: str, dest: Optional[str] = None):
+def find_installed(version: str, dest: Optional[str] = None) -> List[Dict]:
     """
-    Activate an installed release by version string.
+    Find installed releases matching a version string.
 
-    Sets the executable path and runs discovery so the library is ready to use.
+    Accepted forms (a leading 'v' is stripped):
+      - Exact directory name, e.g. '1.0.2+abc123.def456'
+      - Semver only, e.g. '1.0.2'  → matches '1.0.2+*'
+      - Semver + build SHA, e.g. '1.0.2+abc123' → matches '1.0.2+abc123.*'
+      - Signature hash only, e.g. 'def456' → matches '*.def456'
 
     Parameters:
-        version: Version string (e.g. '1.0.0+abc123.def456') matching the
-                 installation directory name. A 'v' prefix is stripped automatically.
+        version: Version string in any of the forms above.
+        dest: Base installations directory (defaults to ~/.openwater/installations)
+
+    Returns:
+        List of installation info dicts (as from list_installed) matching the
+        query, sorted by 'published' date newest first.
+    """
+    query = version.lstrip('v')
+    installed = list_installed(dest=dest)
+
+    def installed_version(info: Dict) -> str:
+        return info.get('version') or os.path.basename(info['path'])
+
+    matches: List[Dict] = []
+
+    # 1) Exact match on directory name / version field
+    for info in installed:
+        if installed_version(info) == query:
+            matches.append(info)
+    if matches:
+        return matches
+
+    if SEMVER_PREFIX_RE.match(query):
+        # Treat as a (partial) version prefix.
+        # Match installations whose version begins with query followed by
+        # one of the structural separators ('+' build sha, '.' sighash, or
+        # nothing if the query itself is a complete version).
+        for info in installed:
+            v = installed_version(info)
+            if v == query:
+                matches.append(info)
+            elif '+' in query:
+                # query already includes build SHA — next separator is '.'
+                if v.startswith(query + '.') or v.startswith(query + '-'):
+                    matches.append(info)
+            else:
+                # bare semver — next separator is '+'
+                if v.startswith(query + '+'):
+                    matches.append(info)
+    else:
+        # Treat as signature hash — version strings end in '.<sighash>'
+        suffix = '.' + query
+        for info in installed:
+            if installed_version(info).endswith(suffix):
+                matches.append(info)
+
+    matches.sort(key=lambda r: r.get('published', ''), reverse=True)
+    return matches
+
+
+def use(version: str, dest: Optional[str] = None):
+    """
+    Activate an installed release.
+
+    Accepts an exact version string, a partial version (e.g. 'v1.0.2'),
+    or just a signature hash (e.g. 'def456'). When multiple installations
+    match, the most recently published one is selected.
+
+    Parameters:
+        version: Version string. See find_installed() for accepted forms.
         dest: Base installations directory (defaults to ~/.openwater/installations)
 
     Raises:
-        ValueError: If the version is not installed.
+        ValueError: If no installed release matches.
     """
     from . import discovery
 
-    version = version.lstrip('v')
-    base = dest or os.path.expanduser(DEST_RELATIVE)
-    install_path = os.path.join(base, version)
-
-    if not os.path.isdir(install_path):
+    matches = find_installed(version, dest=dest)
+    if not matches:
+        base = dest or os.path.expanduser(DEST_RELATIVE)
         raise ValueError(
-            f"Version {version} is not installed at {install_path}. "
+            f"No installed release matches '{version}' in {base}. "
             f"Use install_version() or install_latest() first."
         )
 
+    chosen = matches[0]
+    resolved = chosen.get('version') or os.path.basename(chosen['path'])
+    install_path = chosen['path']
+
     discovery.set_exe_path(install_path)
     discovery.discover()
-    print(f"Using OpenWater Core {version}")
+
+    if len(matches) > 1:
+        others = ', '.join(
+            m.get('version') or os.path.basename(m['path']) for m in matches[1:]
+        )
+        print(f"Using OpenWater Core {resolved} (other matches: {others})")
+    else:
+        print(f"Using OpenWater Core {resolved}")
 
 
 def use_latest(dest: Optional[str] = None, install: bool = False,
