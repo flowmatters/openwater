@@ -89,6 +89,9 @@ Use cases:
 - Focus on a single sub-catchment or outlet
 - Reduce model size for faster iteration during calibration
 - Extract a test case from a large model
+- Isolate a *process* of interest by keeping only nodes of selected model types — for example, keep `StorageRouting` (and its upstream dependencies) for flow calibration, dropping water quality nodes that depend on the flow outputs
+
+Clip and substitute are complementary tools for calibration workflows. Use **clip** when you want to keep the *foundation* processes (typically hydrology) and discard everything that depends on them. Use **substitute** when you want to keep the *dependent* processes (typically water quality) and replace the foundation outputs with fixed time series from a prior run.
 
 ### Clipping by tags (recommended)
 
@@ -218,8 +221,9 @@ When multiple removed nodes feed the same input on a kept node (e.g. two tributa
 |---|---|
 | Run a long simulation in stages with checkpointing | **Split** |
 | Extract a sub-catchment or upstream area | **Clip** |
+| Calibrate a foundation process (e.g. flow) by keeping only those model types | **Clip** (by tags, with `model_type`) |
 | Fix part of the model and iterate on the rest | **Substitute** (by type) |
 | Focus on a downstream reach with upstream as boundary conditions | **Substitute** (above nodes) |
-| Reduce model size for calibration of specific components | **Substitute** (by type) |
+| Calibrate a dependent process (e.g. water quality) using fixed foundation outputs | **Substitute** (by type) |
 
 Split operates on the time axis; clip and substitute operate on the graph (spatial) axis. They can be combined: split a substituted model to get both spatial and temporal reduction.
