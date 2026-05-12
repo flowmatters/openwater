@@ -2,6 +2,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def __getattr__(name):
+  from .discovery import _missing_model_attr
+  _missing_model_attr(__name__, name)
+
+
 _DOC_SEP='\n  * '
 _DOC_TEMPLATE='''
 Function parameters:

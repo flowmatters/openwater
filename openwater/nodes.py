@@ -7,6 +7,11 @@ logger = logging.getLogger(__name__)
 
 MODELS={}
 
+
+def __getattr__(name):
+  from .discovery import _missing_model_attr
+  _missing_model_attr(__name__, name)
+
 class ReadOnlyObjectDict(object):
   def __init__(self,d):
     self._d = d

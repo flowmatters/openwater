@@ -5,6 +5,11 @@ import logging
 logger = logging.getLogger(__name__)
 _the_library = None
 
+
+def __getattr__(name):
+  from .discovery import _missing_model_attr
+  _missing_model_attr(__name__, name)
+
 def get_core_version():
     """Get the version string from the loaded openwater-core library."""
     global _the_library

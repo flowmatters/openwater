@@ -6,6 +6,25 @@ from functools import reduce
 
 OW_BIN=os.environ.get('OW_BIN',os.path.join(os.path.expanduser('~'),'bin'))
 
+_release_active = False
+
+class NoActiveReleaseError(AttributeError):
+  '''Raised when a model attribute is accessed before an OpenWater release is activated.
+
+  Subclasses AttributeError so existing ``hasattr``/``getattr`` callers keep working.
+  '''
+  pass
+
+def _missing_model_attr(module_name, name):
+  if name.startswith('_'):
+    raise AttributeError("module %r has no attribute %r" % (module_name, name))
+  if not _release_active:
+    raise NoActiveReleaseError(
+      "No OpenWater release active; cannot access '%s.%s'. "
+      "Call openwater.discovery.discover() or openwater.releases.use(...) first."
+      % (module_name, name))
+  raise AttributeError("module %r has no attribute %r" % (module_name, name))
+
 def set_exe_path(p):
   global OW_BIN
   OW_BIN=p
@@ -222,5 +241,7 @@ def discover(*args):
     ensemble._create_model_func(model_name,model_meta)
     lib._create_model_func(model_name,model_meta)
     nodes._create_model_type(model_name,model_meta)
+  global _release_active
+  _release_active = True
   return list(metadata.keys())
 

@@ -2,6 +2,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def __getattr__(name):
+  from .discovery import _missing_model_attr
+  _missing_model_attr(__name__, name)
+
+
 def _create_model_func(name,description):
   import sys
   import subprocess
