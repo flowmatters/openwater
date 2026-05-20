@@ -139,6 +139,26 @@ quick_load = results.time_series('EmcDwc', 'quickLoad', 'catchment', 'mean', **c
 slow_load  = results.time_series('EmcDwc', 'slowLoad',  'catchment', 'mean', **constraint)
 ```
 
+## Reporting by quasi-dimensions
+
+For groupings that are pure functions of an existing tag — reporting catchments derived from subcatchments, constituent classes from constituents — register them as [quasi-dimensions](quasi-dimensions.md) rather than building manual joins. They can be registered at model-build time (canonical) or directly on the results object (ad hoc).
+
+```python
+# Ad-hoc: register against the results object for the current session.
+results.add_quasi_dim('reporting_catchments.csv',
+                      key='SC', value='reporting_catchment')
+
+# Then anywhere a tag name is accepted, the quasi-dim name works too:
+results.time_series('Sacramento', 'runoff',
+                    'reporting_catchment', 'mean')       # group by RC
+
+results.time_series('Sacramento', 'runoff', 'catchment', 'mean',
+                    reporting_catchment='North')          # filter by RC,
+                                                          # report by SC
+```
+
+`table` accepts quasi-dim names in `rows` and `columns` on the same terms. Quasi-dims registered on the model file at build time (with `persist=True`) load automatically when you open `OpenwaterResults`; `results.add_quasi_dim(...)` adds more for the current session only. See the [user guide](quasi-dimensions.md) for chaining, persistence and partial-coverage behaviour.
+
 ## Building higher-level reports
 
 `time_series` and `table` are deliberately low-level. Real reports usually need:

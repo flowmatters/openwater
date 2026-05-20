@@ -649,6 +649,13 @@ class ModelGraph(object):
         self._parameteriser = None
         self._last_write = None
         self.time_period = time_period
+        # Registry of quasi-dimensions (see quasi_dim.py). real_dim_names is
+        # supplied lazily so collision checks see the dims computed by
+        # initialise() rather than a stale snapshot.
+        from . import quasi_dim as _qd
+        self._quasi_dims = _qd.QuasiDimRegistry(
+            real_dim_names=lambda: set(getattr(self, 'all_tags', set()))
+        )
         if initialise:
             self.initialise()
 
@@ -705,6 +712,41 @@ class ModelGraph(object):
                     return False
             return True
         return  {n:self._graph.nodes[n] for n in self._graph.nodes if tags_match(self._graph.nodes[n])}
+
+    # -- Quasi-dimensions ---------------------------------------------------
+
+    def add_quasi_dim(self, source, *, name=None, keyed_by=None,
+                      key=None, value=None, default=None, persist=False):
+        '''Register a quasi-dimension. See QuasiDimension.from_source for
+        the accepted ``source`` types and override semantics.
+
+        Raises NameCollisionError if the quasi-dim's name collides with an
+        existing real dimension or registered quasi-dim.
+        '''
+        from . import quasi_dim as _qd
+        return _qd.add_to_registry(self._quasi_dims, source,
+                                   name=name, keyed_by=keyed_by,
+                                   key=key, value=value, default=default,
+                                   persist=persist)
+
+    def remove_quasi_dim(self, name):
+        '''Remove a registered quasi-dimension. Raises if a dependent quasi-dim still uses it.'''
+        self._quasi_dims.remove(name)
+
+    def quasi_dims(self):
+        '''Return a list of registered quasi-dimension names.'''
+        return self._quasi_dims.names()
+
+    def quasi_dim(self, name):
+        '''Look up a registered quasi-dimension by name.'''
+        return self._quasi_dims[name]
+
+    @property
+    def quasi_dim_registry(self):
+        '''Direct access to the underlying QuasiDimRegistry.'''
+        return self._quasi_dims
+
+    # -----------------------------------------------------------------------
 
     def write_model(self,f):
         if self.time_period is None:
@@ -791,6 +833,9 @@ class ModelGraph(object):
                 h5f.attrs['created_by'] = "openwater-py (version unknown)"
         except Exception as e:
             logger.warning(f"Could not write version metadata: {e}")
+
+        # Persisted quasi-dimensions (no-op if none registered with persist=True).
+        self._quasi_dims.write_to_h5(meta)
 
 
     def _write_dimensions(self,f):
@@ -919,7 +964,12 @@ class ModelGraph(object):
                     nodes_df[k] = v
                 full_dims = dict(**dims,**attributes)
                 init_timer('Parameterisation')
-                self._parameteriser.parameterise(model_meta,model_grp,instances,full_dims,node_dict,nodes_df)
+                from . import quasi_dim as _qd
+                resolver = _qd.QuasiDimResolver(
+                    real_dim_names=lambda: set(self.all_tags),
+                    registry=self._quasi_dims,
+                )
+                self._parameteriser.parameterise(model_meta,model_grp,instances,full_dims,node_dict,nodes_df,resolver=resolver)
                 close_timer()
             close_timer()
 
@@ -993,6 +1043,62 @@ class ModelFile(object):
 
           self.time_period = pd.DatetimeIndex([pd.Timestamp.fromisoformat(d) for d in timesteps])
         self._parameteriser = None
+        # Rehydrate persisted quasi-dims (if any). Real dims here are the
+        # DIMENSIONS group keys.
+        from . import quasi_dim as _qd
+        self._quasi_dims = _qd.QuasiDimRegistry(
+            real_dim_names=lambda: set(self._dimensions.keys())
+        )
+        if 'META' in self._h5f:
+            self._quasi_dims.load_from_h5(self._h5f['META'])
+
+    def quasi_dims(self):
+        return self._quasi_dims.names()
+
+    def quasi_dim(self, name):
+        return self._quasi_dims[name]
+
+    @property
+    def quasi_dim_registry(self):
+        return self._quasi_dims
+
+    def add_quasi_dim(self, source, *, name=None, keyed_by=None,
+                      key=None, value=None, default=None, persist=False):
+        '''Register a quasi-dimension on this open ModelFile.
+
+        Shares dispatch logic with ``ModelGraph.add_quasi_dim``. When
+        ``persist=True`` the file is reopened in append mode just long enough
+        to flush the registry's persisted quasi-dims, then reopened read-only.
+        '''
+        from . import quasi_dim as _qd
+        qd = _qd.add_to_registry(self._quasi_dims, source,
+                                 name=name, keyed_by=keyed_by,
+                                 key=key, value=value, default=default,
+                                 persist=persist)
+        if persist:
+            self._flush_quasi_dims_to_disk()
+        return qd
+
+    def remove_quasi_dim(self, name):
+        '''Remove a registered quasi-dimension. If it was persisted, the
+        on-disk copy is removed too.'''
+        was_persisted = self._quasi_dims.is_persisted(name)
+        self._quasi_dims.remove(name)
+        if was_persisted:
+            self._flush_quasi_dims_to_disk()
+
+    def _flush_quasi_dims_to_disk(self):
+        '''Close the read-only handle, write the registry's persisted entries,
+        then reopen read-only.'''
+        import h5py
+        self._h5f.close()
+        try:
+            with h5py.File(self.filename, 'a') as f:
+                if 'META' not in f:
+                    f.create_group('META')
+                self._quasi_dims.write_to_h5(f['META'])
+        finally:
+            self._h5f = h5py.File(self.filename, 'r')
 
     def __enter__(self):
       return self
@@ -1228,7 +1334,12 @@ class ModelFile(object):
 
                 # initialise parameters and states if they don't exist!
 
-                self._parameteriser.parameterise(model_meta,model_grp,instances,dim_map,node_dict,nodes_df)
+                from . import quasi_dim as _qd
+                resolver = _qd.QuasiDimResolver(
+                    real_dim_names=lambda: set(self._dimensions.keys()),
+                    registry=self._quasi_dims,
+                )
+                self._parameteriser.parameterise(model_meta,model_grp,instances,dim_map,node_dict,nodes_df,resolver=resolver)
         finally:
             self.close()
             self._h5f = h5py.File(self.filename,'r')

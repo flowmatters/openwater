@@ -23,6 +23,96 @@ def _open_h5(f):
     import h5py as h5
     return h5.File(f,'r')
 
+
+def _is_set_constraint(value):
+    '''True if the constraint value is a non-string iterable (set-membership).'''
+    if isinstance(value, str):
+        return False
+    return isinstance(value, (list, tuple, set, frozenset, np.ndarray))
+
+
+def _allowed_indices(slice_entry, full_size):
+    '''Return the list of axis indices that ``slice_entry`` permits.
+
+    Mirrors how _retrieve_data populates the ``slices`` list: ``slice(None)``
+    means unrestricted, an int means a single index, a list/array means a
+    set of indices.
+    '''
+    if isinstance(slice_entry, slice):
+        return list(range(full_size))
+    if isinstance(slice_entry, (list, np.ndarray)):
+        return list(slice_entry)
+    return [int(slice_entry)]
+
+
+def _regroup_axis(df, axis, level_projections, output_names, aggregator):
+    '''Apply per-level projections to one axis of ``df``, then group+aggregate.
+
+    Parameters
+    ----------
+    df : DataFrame
+    axis : 0 (index) or 1 (columns)
+    level_projections : dict[int, QuasiDimension]
+        Levels to project, each via a quasi-dim's composed mapping.
+    output_names : list[str]
+        New name(s) for the axis after projection (in level order).
+    aggregator : str
+        'sum' or 'mean'. Applied across rows/cols that collide post-projection.
+    '''
+    cur_axis = df.axes[axis]
+    if isinstance(cur_axis, pd.MultiIndex):
+        nlevels = cur_axis.nlevels
+        new_tuples = []
+        for tpl in cur_axis:
+            new = list(tpl)
+            for lvl, qd in level_projections.items():
+                projected = qd.project(pd.Series([tpl[lvl]]))
+                new[lvl] = projected.iloc[0]
+            new_tuples.append(tuple(new))
+        new_axis = pd.MultiIndex.from_tuples(new_tuples, names=output_names)
+    else:
+        qd = level_projections[0]
+        projected = qd.project(pd.Series(list(cur_axis)))
+        new_axis = pd.Index(projected.tolist(), name=output_names[0])
+
+    df = df.copy()
+    if axis == 0:
+        df.index = new_axis
+        if isinstance(new_axis, pd.MultiIndex):
+            return df.groupby(level=list(range(new_axis.nlevels))).agg(aggregator)
+        return df.groupby(level=0).agg(aggregator)
+    else:
+        df.columns = new_axis
+        trans = df.T
+        if isinstance(new_axis, pd.MultiIndex):
+            grouped = trans.groupby(level=list(range(new_axis.nlevels))).agg(aggregator)
+        else:
+            grouped = trans.groupby(level=0).agg(aggregator)
+        return grouped.T
+
+
+def _index_run_map(run_map, slices):
+    '''Index run_map with a tuple of slice / int / list entries.
+
+    For zero or one advanced (list) index, plain ``run_map[tuple(slices)]``
+    gives correct cartesian-style indexing. For two or more list entries,
+    NumPy would broadcast them pairwise instead — so we widen all entries
+    via ``np.ix_`` to force the cartesian product.
+    '''
+    n_advanced = sum(1 for s in slices if isinstance(s, (list, np.ndarray)))
+    if n_advanced < 2:
+        return run_map[tuple(slices)]
+
+    arrays = []
+    for dim_size, sl in zip(run_map.shape, slices):
+        if isinstance(sl, slice):
+            arrays.append(np.arange(dim_size))
+        elif isinstance(sl, (list, np.ndarray)):
+            arrays.append(np.asarray(sl))
+        else:  # int (or numpy scalar)
+            arrays.append(np.array([sl]))
+    return run_map[np.ix_(*arrays)]
+
 class OpenwaterResults(object):
   def  __init__(self,model,res_file,time_period=None,inputs=None):
     self.model = _open_h5(model)
@@ -39,6 +129,55 @@ class OpenwaterResults(object):
     if self.time_period is None:
       logger.warning('No time period found in results metadata (%s), and no time_period argument provided. Time series results will not have a time index.',res_file)
     self._dimensions={}
+    # Rehydrate persisted quasi-dims from the model file (if any). Real dims
+    # are the keys under /DIMENSIONS.
+    from . import quasi_dim as _qd
+    self._quasi_dims = _qd.QuasiDimRegistry(
+      real_dim_names=lambda: set(self.dims())
+    )
+    if 'META' in self.model:
+      self._quasi_dims.load_from_h5(self.model['META'])
+
+  def quasi_dims(self):
+    return self._quasi_dims.names()
+
+  def quasi_dim(self, name):
+    return self._quasi_dims[name]
+
+  @property
+  def quasi_dim_registry(self):
+    return self._quasi_dims
+
+  def add_quasi_dim(self, source, *, name=None, keyed_by=None,
+                    key=None, value=None, default=None):
+    '''Register a quasi-dimension for use with this results view.
+
+    Shares dispatch logic with ``ModelGraph.add_quasi_dim``. The new
+    quasi-dim is session-only — it is not written to the model file, which
+    avoids surprising mutation of the model file via the results object. If
+    you want a quasi-dim to persist, register it on the ``ModelGraph`` (at
+    model-build time) or via ``ModelFile.add_quasi_dim(..., persist=True)``.
+    '''
+    from . import quasi_dim as _qd
+    return _qd.add_to_registry(self._quasi_dims, source,
+                               name=name, keyed_by=keyed_by,
+                               key=key, value=value, default=default,
+                               persist=False)
+
+  def remove_quasi_dim(self, name):
+    '''Remove a registered quasi-dimension from this results view.
+
+    Persisted quasi-dims (those loaded from the model file) can also be
+    removed — the removal is session-only and does not write back to disk.
+    '''
+    self._quasi_dims.remove(name)
+
+  def _resolver(self):
+    from .quasi_dim import QuasiDimResolver
+    return QuasiDimResolver(
+      real_dim_names=lambda: set(self.dims()),
+      registry=self._quasi_dims,
+    )
 
   def _read_time_period(self):
     if 'META' in self.model and 'timeperiod' in self.model['META']:
@@ -112,13 +251,29 @@ class OpenwaterResults(object):
       if not dim_name in dim_names:
         map_grp = '/MODELS/%s/map'%model
         fixed_value = self.model[map_grp].attrs.get(dim_name,None)
-        if fixed_value != dim_value:
+        # A fixed (single-valued) dim still has to satisfy the constraint —
+        # which means either equality (scalar) or membership (set).
+        if _is_set_constraint(dim_value):
+          if fixed_value not in dim_value:
+            raise Exception('Invalid dimension: %s=%s'%(dim_name,dim_value))
+        elif fixed_value != dim_value:
             raise Exception('Invalid dimension: %s=%s'%(dim_name,dim_value))
         continue
 
       dim_num = dim_names.index(dim_name)
-      dim_idx = dims[dim_name].index(dim_value)
-      slices[dim_num] = dim_idx
+      if _is_set_constraint(dim_value):
+        dim_values_list = dims[dim_name]
+        try:
+          idx_list = [dim_values_list.index(v) for v in dim_value]
+        except ValueError as e:
+          raise Exception(
+            'Invalid value for dimension %s in set constraint: %s'%(dim_name,e))
+        # Preserve order (matches user input order); leave duplicates alone —
+        # later flattening + non-negative filter handles them.
+        slices[dim_num] = idx_list
+      else:
+        dim_idx = dims[dim_name].index(dim_value)
+        slices[dim_num] = dim_idx
     return dim_names, dims, run_map, slices, data
 
   def time_series(self,model,variable:str,columns,aggregator=None,filter_tags={},**kwargs) -> pd.DataFrame:
@@ -138,27 +293,57 @@ class OpenwaterResults(object):
 
     For dimensions (row, columns and kwargs), see dims_for_model
     '''
+    overlap = set(kwargs).intersection(filter_tags)
+    if overlap:
+      raise ValueError('Tag(s) %s supplied via both filter_tags and kwargs'%sorted(overlap))
     kwargs.update(filter_tags)
-    dim_names, dims, run_map, slices, data = self._retrieve_data(model,variable,**kwargs)
+
+    # Phase 3: expand quasi-dim constraints to real-dim equivalents, and
+    # swap quasi-dim entries in `columns` for the real dim they resolve to.
+    # Projections are kept so we can re-group the resulting DataFrame's
+    # columns back to quasi-dim values.
+    resolver = self._resolver()
+    kwargs = resolver.resolve_constraints(kwargs)
 
     if isinstance(columns, str):
       columns = [columns]
+    original_columns = list(columns)
+    quasi_levels = {}
+    real_columns = []
+    for i, c in enumerate(original_columns):
+      if resolver.is_quasi(c):
+        composed = resolver.project_index(c)
+        real_columns.append(composed.keyed_by)
+        quasi_levels[i] = composed
+      else:
+        real_columns.append(c)
+    columns = real_columns
+
+    dim_names, dims, run_map, slices, data = self._retrieve_data(model,variable,**kwargs)
+
     multi = len(columns) > 1
 
     report_dims = [dim_names.index(c) for c in columns]
-    report_values = [dims[c][:run_map.shape[rd]] for c, rd in zip(columns, report_dims)]
+    # Restrict the report-dim iteration to indices permitted by any constraint
+    # on that dim — otherwise the report loop's per-iteration assignment to
+    # current_slices[rd] would clobber a constraint on the same dim.
+    report_pairs = []
+    for c, rd in zip(columns, report_dims):
+      idxs = _allowed_indices(slices[rd], run_map.shape[rd])
+      vals = [dims[c][i] for i in idxs]
+      report_pairs.append(list(zip(idxs, vals)))
 
     import itertools
     all_sequences = {}
     found_match=False
-    for combo in itertools.product(*[enumerate(vals) for vals in report_values]):
+    for combo in itertools.product(*report_pairs):
       indices = [idx for idx, _ in combo]
       names = tuple(name for _, name in combo)
 
       current_slices = slices[:]
       for rd, idx in zip(report_dims, indices):
         current_slices[rd] = idx
-      run_indices = run_map[tuple(current_slices)]
+      run_indices = _index_run_map(run_map, current_slices)
       run_indices = run_indices.flatten()
       run_indices = run_indices[run_indices>=0]
       col_data = data[run_indices,:]
@@ -176,6 +361,12 @@ class OpenwaterResults(object):
     result = pd.DataFrame(all_sequences,index=self.time_period)
     if multi:
       result.columns = pd.MultiIndex.from_tuples(result.columns, names=columns)
+
+    if quasi_levels:
+      result = _regroup_axis(result, axis=1,
+                             level_projections=quasi_levels,
+                             output_names=original_columns,
+                             aggregator=aggregator or 'mean')
     return result
 
   def all_time_series(self,model,model_variable,**kwargs) -> pd.DataFrame:
@@ -188,7 +379,12 @@ class OpenwaterResults(object):
         tags = tuple([dims[dn][ix] for dn,ix in zip(dim_names,run_map_coords)])
         wanted = True
         for k,v in kwargs.items():
-          if tags[dim_names.index(k)]!=v:
+          present = tags[dim_names.index(k)]
+          if _is_set_constraint(v):
+            if present not in v:
+              wanted = False
+              break
+          elif present != v:
             wanted = False
             break
         if not wanted:
@@ -220,30 +416,61 @@ class OpenwaterResults(object):
 
     For dimensions (row, columns and kwargs), see dims_for_model
     '''
+    # Phase 3: expand quasi-dim constraints + swap quasi rows/columns for
+    # their real-dim equivalents, then re-group the resulting DataFrame.
+    resolver = self._resolver()
+    kwargs = resolver.resolve_constraints(kwargs)
+    original_rows, original_columns = rows, columns
+    rows_qd = resolver.project_index(rows) if resolver.is_quasi(rows) else None
+    cols_qd = resolver.project_index(columns) if resolver.is_quasi(columns) else None
+    if rows_qd is not None:
+      rows = rows_qd.keyed_by
+    if cols_qd is not None:
+      columns = cols_qd.keyed_by
+    if rows == columns:
+      raise ValueError(
+        f"rows and columns resolve to the same real dimension {rows!r}; "
+        "this is not supported"
+      )
+
     dim_names, dims, run_map, slices, data = self._retrieve_data(model,variable,**kwargs)
     data = temporal_agg_fns[temporal_aggregator](data)
 
     col_dim = dim_names.index(columns)
     row_dim = dim_names.index(rows)
 
-    column_names = dims[columns][:run_map.shape[col_dim]]
-    row_names = dims[rows][:run_map.shape[row_dim]]
+    # Restrict iteration to indices allowed by any constraint on rows/cols.
+    col_idxs = _allowed_indices(slices[col_dim], run_map.shape[col_dim])
+    row_idxs = _allowed_indices(slices[row_dim], run_map.shape[row_dim])
+    column_names = [dims[columns][i] for i in col_idxs]
+    row_names = [dims[rows][j] for j in row_idxs]
 
     table_data = {}
-    for i,col_name in enumerate(column_names):
+    for col_pos, (i, col_name) in enumerate(zip(col_idxs, column_names)):
       col_data = []
-      for j,_ in enumerate(row_names):
+      for j in row_idxs:
         current_slices = slices[:]
         current_slices[col_dim] = i
         current_slices[row_dim] = j
-        run_indices = run_map[tuple(current_slices)].flatten()
+        run_indices = _index_run_map(run_map, current_slices).flatten()
         cell_data = data[run_indices]
         if cell_data.shape[0]==1:
           col_data.append(cell_data[0])
         else:
           col_data.append(agg_fns[aggregator or 'mean'](cell_data))
       table_data[col_name] = col_data
-    return pd.DataFrame(table_data,index=row_names)
+    df = pd.DataFrame(table_data,index=row_names)
+    if rows_qd is not None:
+      df = _regroup_axis(df, axis=0,
+                         level_projections={0: rows_qd},
+                         output_names=[original_rows],
+                         aggregator=aggregator or 'mean')
+    if cols_qd is not None:
+      df = _regroup_axis(df, axis=1,
+                         level_projections={0: cols_qd},
+                         output_names=[original_columns],
+                         aggregator=aggregator or 'mean')
+    return df
 
   def models(self) -> List[str]:
     return list(self.model['/MODELS'].keys())

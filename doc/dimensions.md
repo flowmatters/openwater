@@ -86,9 +86,21 @@ It should not. Each subcatchment belongs to exactly one reporting catchment, so 
 * require the tag to be kept consistent with the lookup whenever the grouping changes, and
 * offer no new ability to distinguish, parameterise, or connect nodes.
 
-Instead, keep `reporting_catchment` as a lookup (e.g. a pandas `Series` indexed by subcatchment) and apply it at the point of use — when grouping reported results, or when assigning parameters that vary by reporting catchment. The same advice applies to any derived grouping: constituent classes (`TSS`, `TP`, `TN` → `sediment`/`nutrient`), land use categories (`Sugarcane`, `Bananas` → `Cropping`), management zones, and so on.
+Instead, keep `reporting_catchment` as a lookup and apply it at the point of use. Openwater has first-class support for this via **quasi-dimensions** — registered lookups that behave like a tag at the parameterisation and reporting APIs without being part of the graph. See the [quasi-dimensions user guide](quasi-dimensions.md) for the full API; the short version is:
 
-The rule of thumb: if you can build the grouping from a CSV with one row per existing tag value, it is a lookup, not a dimension.
+```python
+model.add_quasi_dim('reporting_catchments.csv',
+                    key='SC', value='reporting_catchment')
+
+results.time_series('Sacramento', 'runoff',
+                    'reporting_catchment', 'mean')   # group by RC
+results.time_series('Sacramento', 'runoff', 'catchment', 'mean',
+                    reporting_catchment='North')      # filter by RC
+```
+
+The same advice applies to any derived grouping: constituent classes (`TSS`, `TP`, `TN` → `sediment`/`nutrient`), land use categories (`Sugarcane`, `Bananas` → `Cropping`), management zones, and so on.
+
+The rule of thumb: if you can build the grouping from a CSV with one row per existing tag value, it is a quasi-dimension, not a dimension.
 
 
 

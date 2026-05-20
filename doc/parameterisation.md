@@ -122,6 +122,35 @@ Then the naming parameter would be
 'rainfall for ${cgu} in catchment ${catchment}'
 ```
 
+## Parameterising by quasi-dimensions
+
+If a parameter varies by a grouping that is a pure function of an existing tag — for example, a value per *reporting catchment* (groups of subcatchments) or per *constituent class* — register the grouping as a [quasi-dimension](quasi-dimensions.md) once, then use its name anywhere a real tag is accepted:
+
+```python
+# Once, at setup time:
+model.add_quasi_dim('reporting_catchments.csv',
+                    key='SC', value='reporting_catchment')
+```
+
+**Constrain a parameteriser by a quasi-dim.** Any parameteriser that accepts a constraint accepts a quasi-dim name in that constraint:
+
+```python
+DictParameteriser(parameter='dwc',
+                  key_format='${SC}',
+                  model='EmcDwc',
+                  parameters={'1': 0.5, '2': 0.7, ...},
+                  constraints={'reporting_catchment': 'North'})
+```
+
+**Broadcast a per-group table to the underlying nodes.** A CSV (one row per reporting catchment) joins automatically via the underlying real dim:
+
+```python
+df = pd.read_csv('rc_params.csv')   # columns: reporting_catchment, dwc, emc
+ParameterTableAssignment(df, 'EmcDwc')
+```
+
+The same applies to the 2-D form (`row_dim` / `column_dim`) and to input timeseries via `DataframeInputs`. See the [user guide](quasi-dimensions.md) for chaining, persistence and limits.
+
 ## Sequence of parameterisation
 
 This document has described different approaches to configuring parameters and input timeseries for model graphs. In practice, a number of these are used and some will be required more than once for a given model, such as for configuring different input timeseries or configuring parameters for different models.

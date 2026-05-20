@@ -31,11 +31,36 @@ def _locate_parameter_in_description(model_desc,parameter):
 
     raise Exception('Unknown parameter or state: %s'%parameter)
 
-def _matches_constraints(constraint_tags,present_tags):
+def _constraint_matches(present_value, constraint_value):
+    '''Check a single tag value against a constraint.
+
+    A constraint value that is a non-string iterable (list, tuple, set,
+    numpy array, etc.) is treated as a set-membership test. Any other value
+    (including strings) is treated as a scalar equality test.
+    '''
+    if isinstance(constraint_value, str):
+        return present_value == constraint_value
+    if isinstance(constraint_value, (list, tuple, set, frozenset, np.ndarray)):
+        return present_value in constraint_value
+    return present_value == constraint_value
+
+
+def _matches_constraints(constraint_tags,present_tags,resolver=None):
+    '''Match a dict of tag constraints against a node's tags.
+
+    If ``resolver`` is provided, any quasi-dim keys in ``constraint_tags`` are
+    first expanded to real-dim equivalents (with set-membership semantics)
+    via the resolver, so callers can transparently constrain by quasi-dims.
+    '''
+    if resolver is not None and constraint_tags:
+        # Only call into the resolver if at least one key is a quasi-dim;
+        # avoids constructing a new dict in the common case.
+        if any(resolver.is_quasi(k) for k in constraint_tags):
+            constraint_tags = resolver.resolve_constraints(dict(constraint_tags))
     for k,v in (constraint_tags or {}).items():
         if k not in present_tags:
             return False
-        if present_tags[k] != v:
+        if not _constraint_matches(present_tags[k], v):
             return False
     return True
 
@@ -54,9 +79,9 @@ class Parameteriser(object):
 
         self._parameterisers.append(parameteriser)
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df,resolver=None):
         for p in self._parameterisers:
-            p.parameterise(model_desc,grp,instances,dims,nodes,nodes_df)
+            p.parameterise(model_desc,grp,instances,dims,nodes,nodes_df,resolver=resolver)
 
 
 class DataframeInput(object):
@@ -72,9 +97,9 @@ class DataframeInput(object):
     def applies(self,model):
         return _models_match(self.model,model)
 
-    def get_series(self,**kwargs):
+    def get_series(self,resolver=None,**kwargs):
         # TODO Check against constraint tags
-        if not _matches_constraints(self.constraint_tags,kwargs):
+        if not _matches_constraints(self.constraint_tags,kwargs,resolver=resolver):
             return None
 
         col_name = self.column_format.substitute(**kwargs)
@@ -114,7 +139,7 @@ class DataframeInputs(object):
             self._inputs[input_name] = []
         self._inputs[input_name].append(DataframeInput(df,col_format,model,kwargs))
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df,resolver=None):
         description = model_desc.description
         inputs = description['Inputs']
         if not len(set(inputs).intersection(set(self._inputs.keys()))):
@@ -144,7 +169,7 @@ class DataframeInputs(object):
                         continue
                     initialise_model_inputs(model_desc.name,grp,len(nodes_df),len(inputs),len(inputters[0].df))
 
-                    data = inputter.get_series(**node)
+                    data = inputter.get_series(resolver=resolver,**node)
                     if data is None:
                         continue
                     applied += 1
@@ -173,7 +198,7 @@ class SingleTimeseriesInput(object):
         self.the_input = the_input
         self.tags = tags
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df,resolver=None):
         if not _models_match(self.model,model_desc):
             return
 
@@ -189,13 +214,7 @@ class SingleTimeseriesInput(object):
 
         i = 0
         for node_name,node in nodes.items():
-            applies_to_node = True
-            for tag_name,tag_value in self.tags.items():
-                if node[tag_name] != tag_value:
-                    applies_to_node = False
-                    break
-
-            if not applies_to_node:
+            if not _matches_constraints(self.tags, node, resolver=resolver):
                 continue
 
             run_idx = node['_run_idx']
@@ -221,18 +240,18 @@ class ParameterTableAssignment(object):
         self.complete = complete
         self.skip_na = skip_na
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df,resolver=None):
         if not _models_match(self.model,model_desc):
             return
 
         logger.info('Applying parameter table to %s'%model_desc.name)
 
         if None in [self.column_dim,self.row_dim,self.parameter is None]:
-           self._parameterise_nd(model_desc,grp,instances,dims,nodes,nodes_df)
+           self._parameterise_nd(model_desc,grp,instances,dims,nodes,nodes_df,resolver=resolver)
         else:
-            self._parameterise_2d(model_desc,grp,instances,dims,nodes)
+            self._parameterise_2d(model_desc,grp,instances,dims,nodes,resolver=resolver)
 
-    def _parameterise_nd(self,model_desc,grp,instances,dims,nodes,nodes_df):
+    def _parameterise_nd(self,model_desc,grp,instances,dims,nodes,nodes_df,resolver=None):
         names = [p['Name'] for p in model_desc.description['Parameters']] + model_desc.description['States']
         current_data = {}
         for p in names:
@@ -253,11 +272,20 @@ class ParameterTableAssignment(object):
         # print('model',model_desc)
         # print('nodes_df',len(nodes_df),nodes_df.columns)
         # print('df',len(self.df),self.df.columns)
-        join_keys = set(dims.keys()).intersection(set(self.df.columns))
+        real_join = set(dims.keys()).intersection(set(self.df.columns))
+        # Quasi-dim columns in the table can also be joined, after projecting
+        # the underlying real dim onto nodes_df via the resolver.
+        quasi_join = set()
+        if resolver is not None:
+            quasi_join = {c for c in self.df.columns
+                          if c not in dims and resolver.is_quasi(c)}
+        join_keys = real_join | quasi_join
         if not len(join_keys):
             raise Exception(f'Table has no columns matching model dimensions. Dims: {dims.keys()}. Columns: {self.df.columns}')
 
-        # print('join_keys',join_keys)
+        if quasi_join:
+            nodes_df = resolver.extend_nodes_df(nodes_df, quasi_join)
+
         joined = pd.merge(nodes_df,self.df,how='inner',on=list(join_keys))
         # print('joined',len(joined),joined.columns)
 
@@ -318,15 +346,31 @@ class ParameterTableAssignment(object):
             logger.info('Applying %s for %s'%(dest_grp,p))
             grp[dest_grp][dest_idx0,dest_idx1]=vals
 
-    def _parameterise_2d(self,model_desc,grp,instances,dims,nodes):
+    def _parameterise_2d(self,model_desc,grp,instances,dims,nodes,resolver=None):
         dest_grp, dest_idx0, dest_idx1 = self.locate(model_desc,self.parameter)
         logger.debug(f'{dest_grp}, {dest_idx0}, {dest_idx1}')
+
+        # If column_dim / row_dim names a quasi-dim, project the node's
+        # underlying real-dim value through the chain at lookup time.
+        col_proj = None
+        row_proj = None
+        if resolver is not None:
+            if resolver.is_quasi(self.column_dim):
+                col_proj = resolver.project_index(self.column_dim)
+            if resolver.is_quasi(self.row_dim):
+                row_proj = resolver.project_index(self.row_dim)
 
         param_data = np.zeros(len(nodes),dtype='float64')
         for _,node in nodes.items():
             run_idx = node['_run_idx']
-            col = node[self.column_dim]
-            row = node[self.row_dim]
+            if col_proj is not None:
+                col = col_proj.project(pd.Series([node[col_proj.keyed_by]])).iloc[0]
+            else:
+                col = node[self.column_dim]
+            if row_proj is not None:
+                row = row_proj.project(pd.Series([node[row_proj.keyed_by]])).iloc[0]
+            else:
+                row = node[self.row_dim]
 
             if col not in self.df.columns and self.skip_na:
                 continue
@@ -353,7 +397,7 @@ class DefaultParameteriser(object):
         self._model = model_name
         self._params = kwargs
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df,resolver=None):
         if not _models_match(self._model,model_desc):
             return
 
@@ -368,7 +412,7 @@ class UniformParameteriser(object):
         self._model = model_name
         self._params = kwargs
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df,resolver=None):
         if not _models_match(self._model,model_desc):
             return
 
@@ -385,7 +429,7 @@ class UniformInput(object):
         self.value = val
         self._length = length
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df,resolver=None):
       inputs = model_desc.description['Inputs']
       for input_num,input_name in enumerate(inputs):
           if input_name!=self.input_name:
@@ -407,13 +451,13 @@ class DictParameteriser(object):
         self.parameters = parameters
         self.parameters.update(**kwargs)
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df,resolver=None):
         if not _models_match(self.model,model_desc):
             return
 
         dest_grp,dest_idx0,dest_idx1 = _locate_parameter_in_description(model_desc,self.parameter)
         for ix, row in nodes_df.iterrows():
-            if not _matches_constraints(self.constraints,row):
+            if not _matches_constraints(self.constraints,row,resolver=resolver):
                 continue
 
             if dest_grp=='parameters':
@@ -435,7 +479,7 @@ class DimensionParameterSizer(object):
 
         return True
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df,resolver=None):
         desc = model_desc.description
         if not self.applies(desc):
             return
@@ -522,14 +566,14 @@ class LoadArraysParameters(object):
             DimensionParameterSizer()
         ]
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df,resolver=None):
         if not _models_match(self.model,model_desc):
             return
         logger.info('Running LoadArrayParameters for %s.',model_desc.name)
         logger.info('self.model=%s',self.model)
 
         for p in self.nested:
-            p.parameterise(model_desc,grp,instances,dims,nodes,nodes_df)
+            p.parameterise(model_desc,grp,instances,dims,nodes,nodes_df,resolver=resolver)
 
         raw = _raw_parameters(nodes_df,grp['parameters'][...])
         indexed = create_indexed_parameter_table(model_desc.description,raw)
@@ -545,11 +589,11 @@ class NestedParameteriser(object):
     def __init__(self,nested=[]):
         self.nested = nested[:]
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df,resolver=None):
         for np in self.nested:
             if np is None: continue
 
-            np.parameterise(model_desc,grp,instances,dims,nodes,nodes_df)
+            np.parameterise(model_desc,grp,instances,dims,nodes,nodes_df,resolver=resolver)
 
 class CustomParameteriser(object):
     def __init__(self,fn,model=None,filter=None):
@@ -557,7 +601,7 @@ class CustomParameteriser(object):
         self.fn = fn
         self.filter = None
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df,resolver=None):
         if not _models_match(self.model,model_desc):
             return
 
