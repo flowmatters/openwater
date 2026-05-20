@@ -66,6 +66,30 @@ So, for example, it is possible to extract the timeseries of constituent load fr
 
 It is also possible, and often useful, to be able to identify a group of model nodes by specifying only a subset of tags. So, for example, specifying `CGU=Ag` and `Cons=TP` would match the corresponding constituent generation model nodes in all three subcatchments. This type of broad node matching is used heavily in the [parameterisation of models](parameterisation.md) and when [retrieving results](reporting.md).
 
+## When _not_ to add a tag
+
+It is tempting to add a tag type for every conceptual grouping a user might want to work with, but most of these groupings do not belong in the model graph. A tag type is only justified when it changes the _structure_ of the graph — that is, when it:
+
+* distinguishes model nodes that would otherwise be indistinguishable (the [minimum attribute requirement](#minimum-attribute-requirements)),
+* causes nodes to be parameterised differently, or
+* governs how nodes are connected.
+
+A grouping that is a pure function of an existing tag — where each value of the existing tag maps to exactly one value of the proposed grouping — should _not_ be a tag. It is a lookup, and belongs outside the model.
+
+### Example: reporting catchments
+
+Suppose a model is tagged with `SC` (subcatchment), `CGU` and `Cons`, and management reporting is done over _reporting catchments_, each of which is a group of subcatchments. It is natural to ask whether `reporting_catchment` should be added as a fourth tag type.
+
+It should not. Each subcatchment belongs to exactly one reporting catchment, so the mapping `SC → reporting_catchment` is a lookup table with one row per subcatchment. Adding `reporting_catchment` as a tag would:
+
+* duplicate information already carried by `SC` (every node tagged `SC=12` would also be tagged `reporting_catchment=North`),
+* require the tag to be kept consistent with the lookup whenever the grouping changes, and
+* offer no new ability to distinguish, parameterise, or connect nodes.
+
+Instead, keep `reporting_catchment` as a lookup (e.g. a pandas `Series` indexed by subcatchment) and apply it at the point of use — when grouping reported results, or when assigning parameters that vary by reporting catchment. The same advice applies to any derived grouping: constituent classes (`TSS`, `TP`, `TN` → `sediment`/`nutrient`), land use categories (`Sugarcane`, `Bananas` → `Cropping`), management zones, and so on.
+
+The rule of thumb: if you can build the grouping from a CSV with one row per existing tag value, it is a lookup, not a dimension.
+
 
 
 
