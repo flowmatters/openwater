@@ -462,7 +462,7 @@ class OpenwaterResults(object):
     r.columns.set_names(dim_names,inplace=True)
     return r
 
-  def table(self,model,variable:str,rows:str,columns:str,temporal_aggregator:str='mean',aggregator:str=None,**kwargs) -> pd.DataFrame:
+  def table(self,model,variable:str,rows:str,columns:str,temporal_aggregator:str='mean',aggregator:str=None,time_period=None,months=None,**kwargs) -> pd.DataFrame:
     '''
     Return a table (DataFrame) of aggregated model results from the model.
 
@@ -472,8 +472,11 @@ class OpenwaterResults(object):
     * variable - a variable on the model, either an input or an output
     * row - a dimension of the model to use as the rows of the DataFrame
     * columns - a dimension of the model to use as the columns of the DataFrame
-    * temporal_aggregator - a function name (string) to reduce the timeseries results to a single value (default='mean')
+    * temporal_aggregator - a function name (string) to reduce the timeseries results to a single value (default='mean').
+                            Accepts named aggregators ('mean', 'sum', 'min', 'max') and percentiles expressed as 'p<q>' (eg 'p50', 'p99.5').
     * aggregator - a function name (string) to apply when more than one data series matches a particular row/column (eg 'mean')
+    * time_period - optional (start, end) tuple to subset the time axis (either end may be None)
+    * months - optional list of month numbers (1-12) to keep
     * **kwargs - used to specify other dimensions to filter by
 
     For temporal_aggregator, see temporal_agg_fns.keys()
@@ -500,7 +503,10 @@ class OpenwaterResults(object):
       )
 
     dim_names, dims, run_map, slices, data = self._retrieve_data(model,variable,**kwargs)
-    data = temporal_agg_fns[temporal_aggregator](data)
+    _, mask = self._time_selection(time_period,months)
+    if mask is not None:
+      data = data[:,mask]
+    data = resolve_temporal_agg(temporal_aggregator)(data)
 
     col_dim = dim_names.index(columns)
     row_dim = dim_names.index(rows)

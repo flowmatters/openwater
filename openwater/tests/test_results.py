@@ -140,3 +140,31 @@ class TestTimeSeriesSubsetting:
                               time_period=('2020-01-01', '2020-01-05'))
         finally:
             r.close()
+
+
+class TestTableSubsetting:
+    def test_default_mean_unchanged(self, results):
+        tbl = results.table('DummyModel', 'runoff', rows='catchment',
+                            columns='hru')
+        # constant series: mean == run value
+        assert tbl.loc['c1', 'h1'] == pytest.approx(1.0)
+        assert tbl.loc['c2', 'h2'] == pytest.approx(4.0)
+
+    def test_sum_over_time_period(self, results):
+        tbl = results.table(
+            'DummyModel', 'runoff', rows='catchment', columns='hru',
+            temporal_aggregator='sum',
+            time_period=('2020-03-01', '2020-03-31'))
+        assert tbl.loc['c1', 'h1'] == pytest.approx(31.0)
+        assert tbl.loc['c2', 'h1'] == pytest.approx(3.0 * 31)
+
+    def test_percentile_aggregator(self, results):
+        tbl = results.table('DummyModel', 'runoff', rows='catchment',
+                            columns='hru', temporal_aggregator='p50')
+        assert tbl.loc['c2', 'h2'] == pytest.approx(4.0)
+
+    def test_months_filter_sum(self, results):
+        tbl = results.table(
+            'DummyModel', 'runoff', rows='catchment', columns='hru',
+            temporal_aggregator='sum', months=[1])
+        assert tbl.loc['c1', 'h1'] == pytest.approx(62.0)
