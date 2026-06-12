@@ -212,3 +212,53 @@ class TestGroupedTable:
             results.grouped_table(
                 'DummyModel', 'runoff', columns='catchment',
                 temporal_grouping='fortnight', hru='h1')
+
+
+@pytest.fixture
+def split_results(tmp_path):
+    """Two splits: 2020 (366 days) and 2021 (365 days)."""
+    parts = []
+    boundaries = [('2020-01-01', '2020-12-31'), ('2021-01-01', '2021-12-31')]
+    for i, (start, end) in enumerate(boundaries):
+        dates = pd.date_range(start, end, freq='D')
+        model_path = str(tmp_path / f'model{i}.h5')
+        results_path = str(tmp_path / f'outputs{i}.h5')
+        write_model_h5(model_path, dates)
+        write_results_h5(results_path, len(dates))
+        parts.append(OpenwaterResults(model_path, results_path))
+    sr = OpenwaterSplitResults(parts, time_period=DATES)
+    yield sr
+    sr.close()
+
+
+class TestSplitResults:
+    def test_existing_mean_table_unchanged(self, split_results):
+        tbl = split_results.table('DummyModel', 'runoff', rows='catchment',
+                                  columns='hru')
+        assert tbl.loc['c1', 'h1'] == pytest.approx(1.0)
+
+    def test_time_series_subset_across_boundary(self, split_results):
+        ts = split_results.time_series(
+            'DummyModel', 'runoff', 'catchment', hru='h1',
+            time_period=('2020-12-01', '2021-01-31'))
+        assert len(ts) == 62
+
+    def test_table_sum_subset_across_boundary(self, split_results):
+        tbl = split_results.table(
+            'DummyModel', 'runoff', rows='catchment', columns='hru',
+            temporal_aggregator='sum',
+            time_period=('2020-12-01', '2021-01-31'))
+        assert tbl.loc['c1', 'h1'] == pytest.approx(62.0)
+        assert tbl.loc['c2', 'h2'] == pytest.approx(4.0 * 62)
+
+    def test_table_percentile(self, split_results):
+        tbl = split_results.table('DummyModel', 'runoff', rows='catchment',
+                                  columns='hru', temporal_aggregator='p50')
+        assert tbl.loc['c2', 'h1'] == pytest.approx(3.0)
+
+    def test_grouped_table_year(self, split_results):
+        tbl = split_results.grouped_table(
+            'DummyModel', 'runoff', columns='catchment',
+            temporal_grouping='year', temporal_aggregator='sum', hru='h1')
+        assert tbl.loc[2020, 'c1'] == pytest.approx(366.0)
+        assert tbl.loc[2021, 'c1'] == pytest.approx(365.0)

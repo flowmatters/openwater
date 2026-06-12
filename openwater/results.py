@@ -620,7 +620,8 @@ class OpenwaterSplitResults(object):
       self._results = [OpenwaterResults(model,res) for (model,res) in splits]
     else:
       self._results = splits
-    self.time_period = self._results[0].time_period or time_period
+    first_tp = self._results[0].time_period
+    self.time_period = time_period if time_period is not None else first_tp
 
   def close(self):
     for split in self._results:
@@ -632,7 +633,7 @@ class OpenwaterSplitResults(object):
   def dims(self) -> List[str]:
     return self._results[0].dims()
 
-  def time_series(self,model,variable:str,columns:str,aggregator=None,**kwargs) -> pd.DataFrame:
+  def time_series(self,model,variable:str,columns,aggregator=None,time_period=None,months=None,**kwargs) -> pd.DataFrame:
     '''
     Return a table (DataFrame) of time series results from the model.
 
@@ -642,6 +643,8 @@ class OpenwaterSplitResults(object):
     * variable - a variable on the model, either an input or an output
     * columns - a dimension of the model to use as the columns of the DataFrame
     * aggregator - a function name (string) to apply when more than one data series matches a particular column (eg 'mean')
+    * time_period - optional (start, end) tuple to subset the time axis (either end may be None)
+    * months - optional list of month numbers (1–12) to filter
     * **kwargs - used to specify other dimensions to filter by
 
     For aggregator, see agg_fns.keys()
@@ -651,16 +654,24 @@ class OpenwaterSplitResults(object):
     all_dfs = [split.time_series(model,variable,columns,aggregator,**kwargs) for split in self._results]
     concat = pd.concat(all_dfs)
     result = concat.set_index(self.time_period)
+    if time_period is not None:
+      start,end = time_period
+      result = result.loc[start:end]
+    if months is not None:
+      result = result[np.isin(result.index.month,list(months))]
     return result
 
-  def table(self,model,variable:str,rows:str,columns:str,temporal_aggregator:str='mean',aggregator:str=None,**kwargs) -> pd.DataFrame:
+  def table(self,model,variable:str,rows:str,columns:str,temporal_aggregator:str='mean',aggregator:str=None,time_period=None,months=None,**kwargs) -> pd.DataFrame:
     '''
     Return a table (DataFrame) of aggregated model results from the model,
     combining results across all time splits.
 
-    For temporal splits that partition the time axis:
+    For temporal splits that partition the time axis without subsetting:
     - 'sum' aggregator: tables from each split are summed (sums are additive)
     - 'mean' aggregator: tables are combined as a weighted mean by timestep count
+
+    For subset or percentile aggregators, the full concatenated timeseries is
+    used (general path via time_series + _df_temporal_agg).
 
     Parameters:
 
@@ -670,6 +681,8 @@ class OpenwaterSplitResults(object):
     * columns - a dimension of the model to use as the columns of the DataFrame
     * temporal_aggregator - a function name (string) to reduce the timeseries results to a single value (default='mean')
     * aggregator - a function name (string) to apply when more than one data series matches a particular row/column (eg 'mean')
+    * time_period - optional (start, end) tuple to subset the time axis (either end may be None)
+    * months - optional list of month numbers (1–12) to filter
     * **kwargs - used to specify other dimensions to filter by
 
     For temporal_aggregator, see temporal_agg_fns.keys()
@@ -678,16 +691,27 @@ class OpenwaterSplitResults(object):
 
     For dimensions (row, columns and kwargs), see dims_for_model
     '''
-    split_tables = [s.table(model, variable, rows, columns, temporal_aggregator, aggregator, **kwargs)
-                    for s in self._results]
-    if temporal_aggregator == 'sum':
-      return sum(split_tables)
-    elif temporal_aggregator == 'mean':
+    if time_period is None and months is None and temporal_aggregator in ('sum','mean'):
+      # Fast path: recombine per-split tables without touching timeseries
+      split_tables = [s.table(model, variable, rows, columns, temporal_aggregator, aggregator, **kwargs)
+                      for s in self._results]
+      if temporal_aggregator == 'sum':
+        return sum(split_tables)
       weights = [len(s.time_period) for s in self._results]
       total = sum(weights)
       return sum(t * w for t, w in zip(split_tables, weights)) / total
-    else:
-      raise ValueError(f'Unsupported temporal_aggregator for split results: {temporal_aggregator}')
+
+    # General path (subsets, percentiles): aggregate the concatenated timeseries
+    ts = self.time_series(model,variable,(rows,columns),aggregator,time_period=time_period,months=months,**kwargs)
+    reduced = _df_temporal_agg(ts,temporal_aggregator)
+    return reduced.unstack(columns)
+
+  def grouped_table(self,model,variable:str,columns,temporal_grouping:str,temporal_aggregator:str='mean',aggregator:str=None,time_period=None,months=None,water_year_start:int=7,**kwargs) -> pd.DataFrame:
+    '''
+    As OpenwaterResults.grouped_table, computed over the concatenated splits.
+    '''
+    ts = self.time_series(model,variable,columns,aggregator,time_period=time_period,months=months,**kwargs)
+    return _grouped_table_from_timeseries(ts,temporal_grouping,temporal_aggregator,water_year_start)
 
   def models(self) -> List[str]:
     return self._results[0].models()
