@@ -33,6 +33,30 @@ class ReadOnlyObjectDict(object):
   def __contains__(self,k):
     return k in self._d
 
+def _flux_names(flux_list):
+  """Extract variable names from a flux list.
+
+  Handles both old format (plain strings) and new format (dicts with Name/Units).
+  """
+  if not flux_list:
+    return []
+  if isinstance(flux_list[0], dict):
+    return [v['Name'] for v in flux_list]
+  return list(flux_list)
+
+def _flux_units(flux_list):
+  """Extract a name->units mapping from a flux list.
+
+  Handles VariableList (has .details), raw dicts, and plain strings.
+  """
+  if not flux_list:
+    return {}
+  if hasattr(flux_list, 'details'):
+    return {v['Name']: v.get('Units', '') for v in flux_list.details}
+  if isinstance(flux_list[0], dict):
+    return {v['Name']: v.get('Units', '') for v in flux_list}
+  return {v: '' for v in flux_list}
+
 def _create_model_type(name,description):
   import sys
   thismodule = sys.modules[__name__]
@@ -45,18 +69,14 @@ class ModelDescription(object):
     self.name = name
     self.description = description
     self.group = description.get('Group', '')
-    self.inputs = ReadOnlyObjectDict({i:i for i in description['Inputs']})
-    self.outputs = ReadOnlyObjectDict({o:o for o in description['Outputs']})
+    input_names = _flux_names(description['Inputs'])
+    output_names = _flux_names(description['Outputs'])
+    self.inputs = ReadOnlyObjectDict({i:i for i in input_names})
+    self.outputs = ReadOnlyObjectDict({o:o for o in output_names})
     self.states = ReadOnlyObjectDict({s:s for s in description['States']})
     self.parameters = ReadOnlyObjectDict({p['Name']:p['Name'] for p in description['Parameters']})
-    self.input_units = ReadOnlyObjectDict({
-      v['Name']: v.get('Units','')
-      for v in (description['Inputs'].details if hasattr(description['Inputs'], 'details') else [])
-    })
-    self.output_units = ReadOnlyObjectDict({
-      v['Name']: v.get('Units','')
-      for v in (description['Outputs'].details if hasattr(description['Outputs'], 'details') else [])
-    })
+    self.input_units = ReadOnlyObjectDict(_flux_units(description['Inputs']))
+    self.output_units = ReadOnlyObjectDict(_flux_units(description['Outputs']))
     self.parameter_details = ReadOnlyObjectDict({
       p['Name']: p for p in description['Parameters']
     })
@@ -121,5 +141,5 @@ def models_with_term(term,term_type=None):
   if not term_type.endswith('s'):
     term_type = term_type+'s'
 
-  result = [k for k,desc in MODELS.items() if term in desc[term_type]]
+  result = [k for k,desc in MODELS.items() if term in _flux_names(desc[term_type])]
   return result

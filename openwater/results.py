@@ -208,21 +208,24 @@ class OpenwaterResults(object):
       return vals
 
   def _retrieve_all(self,model,variable):
+    from .nodes import _flux_names
     desc = getattr(node_types,model)
-    is_input = variable in desc.description['Inputs']
+    input_names = _flux_names(desc.description['Inputs'])
+    output_names = _flux_names(desc.description['Outputs'])
+    is_input = variable in input_names
 
     grp_name = '/MODELS/%s'%model
     out_grp = self.results[grp_name]
 
     if is_input:
-      var_idx = desc.description['Inputs'].index(variable)
+      var_idx = input_names.index(variable)
       if 'inputs' in out_grp:
         dataset = out_grp['inputs']
       else:
         in_grp = self.inputs[grp_name]
         dataset = in_grp['inputs']
     else:
-      var_idx = desc.description['Outputs'].index(variable)
+      var_idx = output_names.index(variable)
       dataset = out_grp['outputs']
 
     data = dataset[:,var_idx,:]
@@ -276,7 +279,7 @@ class OpenwaterResults(object):
         slices[dim_num] = dim_idx
     return dim_names, dims, run_map, slices, data
 
-  def time_series(self,model,variable:str,columns,aggregator=None,filter_tags={},**kwargs) -> pd.DataFrame:
+  def time_series(self,model,variable:str=None,columns=None,aggregator=None,filter_tags={},**kwargs) -> pd.DataFrame:
     '''
     Return a table (DataFrame) of time series results from the model.
 
@@ -284,6 +287,8 @@ class OpenwaterResults(object):
 
     * model - the model of interest
     * variable - a variable on the model, either an input or an output
+               - if None, other query parameters should be set to return a single time series,
+               - and this function will then return all variables in a single dataframe.
     * columns - a dimension (or list/tuple of dimensions) of the model to use as the columns of the DataFrame.
                 When multiple dimensions are provided, the resulting DataFrame will have a MultiIndex on the columns.
     * aggregator - a function name (string) to apply when more than one data series matches a particular column (eg 'mean')
@@ -297,6 +302,15 @@ class OpenwaterResults(object):
     if overlap:
       raise ValueError('Tag(s) %s supplied via both filter_tags and kwargs'%sorted(overlap))
     kwargs.update(filter_tags)
+
+    if variable is None:
+      variables = self.variables_for(model)
+      if len(kwargs):
+        col = list(kwargs.keys())[0]
+      else:
+        col = None
+      all_dfs = {v:self.time_series(model,v,col,aggregator,**kwargs).rename(columns=lambda _:v) for v in variables}
+      return pd.concat(all_dfs.values(),axis=1)
 
     # Phase 3: expand quasi-dim constraints to real-dim equivalents, and
     # swap quasi-dim entries in `columns` for the real dim they resolve to.
@@ -476,11 +490,12 @@ class OpenwaterResults(object):
     return list(self.model['/MODELS'].keys())
 
   def variables_for(self,model) -> List[str]:
+    from .nodes import _flux_names
     if hasattr(model,'name'):
         desc = model
     else:
         desc = getattr(node_types,model)
-    return desc.description['Inputs'] + desc.description['Outputs']
+    return _flux_names(desc.description['Inputs']) + _flux_names(desc.description['Outputs'])
 
   def dims_for_model(self,model) -> List[str]:
     model = self._model_name(model)
@@ -585,3 +600,7 @@ def open_split_results(model_fn,results_pattern,input_pattern=None,time_period=N
   individual_result_objects = [OpenwaterResults(model_fn,res_file,inputs=None if inputs_filenames is None else inputs_filenames[ix])\
                                for ix,res_file in enumerate(results_filenames)]
   return OpenwaterSplitResults(individual_result_objects,time_period=time_period)
+
+# TODO:
+# * Implement indexable results
+#   eg results.time_series.StorageRouting.storage.by.catchment()
