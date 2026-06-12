@@ -79,7 +79,15 @@ class TestResolveTemporalAgg:
         a = np.arange(101, dtype=float).reshape(1, 101)
         assert resolve_temporal_agg('p10')(a)[0] == pytest.approx(10.0)
         assert resolve_temporal_agg('p99.5')(a)[0] == pytest.approx(99.5)
+        assert resolve_temporal_agg('p0')(a)[0] == pytest.approx(0.0)
+        assert resolve_temporal_agg('p100')(a)[0] == pytest.approx(100.0)
 
     def test_unknown_raises(self):
         with pytest.raises(KeyError):
             resolve_temporal_agg('median-ish')
+        with pytest.raises(KeyError):
+            resolve_temporal_agg('p101')
+        with pytest.raises(KeyError):
+            resolve_temporal_agg(None)
+        with pytest.raises(KeyError):
+            resolve_temporal_agg('')

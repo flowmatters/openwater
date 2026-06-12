@@ -15,7 +15,7 @@ temporal_agg_fns = {
   'max':lambda a: a.max(axis=1)
 }
 
-PERCENTILE_PATTERN = re.compile(r'^p(\d{1,2}(?:\.\d+)?)$')
+PERCENTILE_PATTERN = re.compile(r'^p(\d{1,3}(?:\.\d+)?)$')
 
 def resolve_temporal_agg(name):
   '''
@@ -29,6 +29,8 @@ def resolve_temporal_agg(name):
   m = PERCENTILE_PATTERN.match(name or '')
   if m:
     q = float(m.group(1))
+    if q > 100:
+      raise KeyError('Unknown temporal aggregator: %s'%name)
     return lambda a: np.percentile(a, q, axis=1)
   raise KeyError('Unknown temporal aggregator: %s'%name)
 
