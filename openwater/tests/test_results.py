@@ -213,6 +213,13 @@ class TestGroupedTable:
                 'DummyModel', 'runoff', columns='catchment',
                 temporal_grouping='fortnight', hru='h1')
 
+    def test_out_of_range_percentile_raises(self, results):
+        with pytest.raises(KeyError):
+            results.grouped_table(
+                'DummyModel', 'runoff', columns='catchment',
+                temporal_grouping='year', temporal_aggregator='p101',
+                hru='h1')
+
 
 @pytest.fixture
 def split_results(tmp_path):

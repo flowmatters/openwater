@@ -59,7 +59,10 @@ def _df_temporal_agg(df_or_grouped,name):
     return getattr(df_or_grouped,name)()
   m = PERCENTILE_PATTERN.match(name or '')
   if m:
-    return df_or_grouped.quantile(float(m.group(1))/100.0)
+    q = float(m.group(1))
+    if q > 100:
+      raise KeyError('Unknown temporal aggregator: %s'%name)
+    return df_or_grouped.quantile(q/100.0)
   raise KeyError('Unknown temporal aggregator: %s'%name)
 
 def _grouped_table_from_timeseries(ts,temporal_grouping,temporal_aggregator,water_year_start=7):
