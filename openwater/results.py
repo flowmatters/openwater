@@ -34,6 +34,38 @@ def resolve_temporal_agg(name):
     return lambda a: np.percentile(a, q, axis=1)
   raise KeyError('Unknown temporal aggregator: %s'%name)
 
+TEMPORAL_GROUPINGS = ('year','month','water_year','month_of_year')
+
+def _grouping_keys(index,temporal_grouping,water_year_start=7):
+  '''
+  Map a DatetimeIndex to group labels for a temporal grouping.
+
+  Water years are labelled by their starting calendar year (water year 2020
+  with water_year_start=7 covers 2020-07-01 to 2021-06-30).
+  '''
+  if temporal_grouping == 'year':
+    return index.year
+  if temporal_grouping == 'month':
+    return index.to_period('M').astype(str)
+  if temporal_grouping == 'water_year':
+    return np.where(index.month >= water_year_start,index.year,index.year-1)
+  if temporal_grouping == 'month_of_year':
+    return index.month
+  raise ValueError('Unknown temporal grouping: %s'%temporal_grouping)
+
+def _df_temporal_agg(df_or_grouped,name):
+  '''Apply a temporal aggregator by name to a DataFrame or GroupBy (time on axis 0).'''
+  if name in ('sum','mean','min','max'):
+    return getattr(df_or_grouped,name)()
+  m = PERCENTILE_PATTERN.match(name or '')
+  if m:
+    return df_or_grouped.quantile(float(m.group(1))/100.0)
+  raise KeyError('Unknown temporal aggregator: %s'%name)
+
+def _grouped_table_from_timeseries(ts,temporal_grouping,temporal_aggregator,water_year_start=7):
+  keys = _grouping_keys(ts.index,temporal_grouping,water_year_start)
+  return _df_temporal_agg(ts.groupby(keys),temporal_aggregator)
+
 agg_fns = {
     'mean':lambda a: a.mean(axis=0),
     'sum':lambda a: a.sum(axis=0)
@@ -479,7 +511,7 @@ class OpenwaterResults(object):
     * months - optional list of month numbers (1-12) to keep
     * **kwargs - used to specify other dimensions to filter by
 
-    For temporal_aggregator, see temporal_agg_fns.keys()
+    For named temporal aggregators, see temporal_agg_fns.keys(); percentiles use 'p<q>' notation.
 
     For aggregator, see agg_fns.keys()
 
@@ -543,6 +575,25 @@ class OpenwaterResults(object):
                          output_names=[original_columns],
                          aggregator=aggregator or 'mean')
     return df
+
+  def grouped_table(self,model,variable:str,columns,temporal_grouping:str,temporal_aggregator:str='mean',aggregator:str=None,time_period=None,months=None,water_year_start:int=7,**kwargs) -> pd.DataFrame:
+    '''
+    Return a table (DataFrame) of model results aggregated to temporal groups.
+
+    Rows are temporal groups (one per year/month/water year/month-of-year),
+    columns are the values of the `columns` dimension.
+
+    Parameters:
+
+    * model, variable, columns, aggregator, **kwargs - as for time_series
+    * temporal_grouping - one of TEMPORAL_GROUPINGS
+    * temporal_aggregator - reduction within each group ('mean','sum','min','max','p<q>')
+    * time_period, months - optional subsetting applied before grouping
+    * water_year_start - first month of the water year (default 7);
+                         water years are labelled by their starting year
+    '''
+    ts = self.time_series(model,variable,columns,aggregator,time_period=time_period,months=months,**kwargs)
+    return _grouped_table_from_timeseries(ts,temporal_grouping,temporal_aggregator,water_year_start)
 
   def models(self) -> List[str]:
     return list(self.model['/MODELS'].keys())

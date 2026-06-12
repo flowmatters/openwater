@@ -168,3 +168,47 @@ class TestTableSubsetting:
             'DummyModel', 'runoff', rows='catchment', columns='hru',
             temporal_aggregator='sum', months=[1])
         assert tbl.loc['c1', 'h1'] == pytest.approx(62.0)
+
+
+class TestGroupedTable:
+    def test_year_sum(self, results):
+        tbl = results.grouped_table(
+            'DummyModel', 'runoff', columns='catchment',
+            temporal_grouping='year', temporal_aggregator='sum', hru='h1')
+        assert list(tbl.index) == [2020, 2021]
+        assert tbl.loc[2020, 'c1'] == pytest.approx(366.0)
+        assert tbl.loc[2021, 'c2'] == pytest.approx(3.0 * 365)
+
+    def test_water_year_sum(self, results):
+        tbl = results.grouped_table(
+            'DummyModel', 'runoff', columns='catchment',
+            temporal_grouping='water_year', temporal_aggregator='sum',
+            hru='h1')
+        # WY2019: 2020-01-01..2020-06-30 (182d); WY2020: full year (365d);
+        # WY2021: 2021-07-01..2021-12-31 (184d). Labelled by starting year.
+        assert list(tbl.index) == [2019, 2020, 2021]
+        assert tbl.loc[2019, 'c1'] == pytest.approx(182.0)
+        assert tbl.loc[2020, 'c1'] == pytest.approx(365.0)
+        assert tbl.loc[2021, 'c1'] == pytest.approx(184.0)
+
+    def test_month_of_year_mean(self, results):
+        tbl = results.grouped_table(
+            'DummyModel', 'runoff', columns='catchment',
+            temporal_grouping='month_of_year', temporal_aggregator='mean',
+            hru='h1')
+        assert list(tbl.index) == list(range(1, 13))
+        assert tbl.loc[6, 'c2'] == pytest.approx(3.0)
+
+    def test_month_grouping_with_period(self, results):
+        tbl = results.grouped_table(
+            'DummyModel', 'runoff', columns='catchment',
+            temporal_grouping='month', temporal_aggregator='sum', hru='h1',
+            time_period=('2020-01-01', '2020-03-31'))
+        assert list(tbl.index) == ['2020-01', '2020-02', '2020-03']
+        assert tbl.loc['2020-02', 'c1'] == pytest.approx(29.0)
+
+    def test_unknown_grouping_raises(self, results):
+        with pytest.raises(ValueError):
+            results.grouped_table(
+                'DummyModel', 'runoff', columns='catchment',
+                temporal_grouping='fortnight', hru='h1')
