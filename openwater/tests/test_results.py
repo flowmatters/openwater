@@ -91,3 +91,52 @@ class TestResolveTemporalAgg:
             resolve_temporal_agg(None)
         with pytest.raises(KeyError):
             resolve_temporal_agg('')
+
+
+class TestTimeSeriesSubsetting:
+    def test_no_subset_unchanged(self, results):
+        ts = results.time_series('DummyModel', 'runoff', 'catchment', hru='h1')
+        assert len(ts) == 731
+        assert list(ts.columns) == ['c1', 'c2']
+        assert ts['c1'].iloc[0] == pytest.approx(1.0)
+        assert ts['c2'].iloc[0] == pytest.approx(3.0)  # run_map[1,0] == 2
+
+    def test_time_period_subset(self, results):
+        ts = results.time_series(
+            'DummyModel', 'runoff', 'catchment', hru='h1',
+            time_period=('2020-03-01', '2020-03-31'))
+        assert len(ts) == 31
+        assert ts.index[0] == pd.Timestamp('2020-03-01')
+        assert ts.index[-1] == pd.Timestamp('2020-03-31')
+
+    def test_open_ended_period(self, results):
+        ts = results.time_series(
+            'DummyModel', 'runoff', 'catchment', hru='h1',
+            time_period=('2021-01-01', None))
+        assert len(ts) == 365
+
+    def test_months_filter(self, results):
+        ts = results.time_series(
+            'DummyModel', 'runoff', 'catchment', hru='h1', months=[1])
+        assert len(ts) == 62  # Jan 2020 + Jan 2021
+        assert set(ts.index.month) == {1}
+
+    def test_subset_without_time_index_raises(self, tmp_path):
+        model_path = str(tmp_path / 'model.h5')
+        results_path = str(tmp_path / 'outputs.h5')
+        with h5py.File(model_path, 'w') as f:
+            f.create_dataset('/DIMENSIONS/catchment',
+                             data=np.array(CATCHMENTS, dtype='S'))
+            f.create_dataset('/DIMENSIONS/hru', data=np.array(HRUS, dtype='S'))
+            ds = f.create_dataset('/MODELS/DummyModel/map',
+                                  data=np.arange(4).reshape(2, 2))
+            ds.attrs['DIMS'] = np.array([b'catchment', b'hru'])
+            # no META/timeperiod
+        write_results_h5(results_path, 10)
+        r = OpenwaterResults(model_path, results_path)
+        try:
+            with pytest.raises(ValueError):
+                r.time_series('DummyModel', 'runoff', 'catchment', hru='h1',
+                              time_period=('2020-01-01', '2020-01-05'))
+        finally:
+            r.close()

@@ -209,6 +209,31 @@ class OpenwaterResults(object):
       return pd.DatetimeIndex([pd.Timestamp.fromisoformat(d) for d in raw])
     return None
 
+  def _time_selection(self,time_period=None,months=None):
+    '''
+    Return (index, mask) selecting a subset of the time axis.
+
+    * time_period - optional (start, end) tuple; either end may be None (open)
+    * months - optional list of month numbers (1-12) to keep
+
+    Returns (self.time_period, None) when no subsetting is requested.
+    '''
+    if time_period is None and months is None:
+      return self.time_period, None
+    if self.time_period is None:
+      raise ValueError('Cannot subset results that have no time index')
+    idx = self.time_period
+    mask = np.ones(len(idx),dtype=bool)
+    if time_period is not None:
+      start,end = time_period
+      if start is not None:
+        mask &= (idx >= pd.Timestamp(start))
+      if end is not None:
+        mask &= (idx <= pd.Timestamp(end))
+    if months is not None:
+      mask &= np.isin(idx.month,list(months))
+    return idx[mask], mask
+
   def close(self):
       self.results.close()
       self.model.close()
@@ -301,7 +326,7 @@ class OpenwaterResults(object):
         slices[dim_num] = dim_idx
     return dim_names, dims, run_map, slices, data
 
-  def time_series(self,model,variable:str=None,columns=None,aggregator=None,filter_tags={},**kwargs) -> pd.DataFrame:
+  def time_series(self,model,variable:str=None,columns=None,aggregator=None,filter_tags={},time_period=None,months=None,**kwargs) -> pd.DataFrame:
     '''
     Return a table (DataFrame) of time series results from the model.
 
@@ -314,6 +339,8 @@ class OpenwaterResults(object):
     * columns - a dimension (or list/tuple of dimensions) of the model to use as the columns of the DataFrame.
                 When multiple dimensions are provided, the resulting DataFrame will have a MultiIndex on the columns.
     * aggregator - a function name (string) to apply when more than one data series matches a particular column (eg 'mean')
+    * time_period - optional (start, end) tuple to subset the time axis (either end may be None)
+    * months - optional list of month numbers (1-12) to keep
     * **kwargs - used to specify other dimensions to filter by
 
     For aggregator, see agg_fns.keys()
@@ -331,7 +358,7 @@ class OpenwaterResults(object):
         col = list(kwargs.keys())[0]
       else:
         col = None
-      all_dfs = {v:self.time_series(model,v,col,aggregator,**kwargs).rename(columns=lambda _:v) for v in variables}
+      all_dfs = {v:self.time_series(model,v,col,aggregator,time_period=time_period,months=months,**kwargs).rename(columns=lambda _:v) for v in variables}
       return pd.concat(all_dfs.values(),axis=1)
 
     # Phase 3: expand quasi-dim constraints to real-dim equivalents, and
@@ -356,6 +383,9 @@ class OpenwaterResults(object):
     columns = real_columns
 
     dim_names, dims, run_map, slices, data = self._retrieve_data(model,variable,**kwargs)
+    index, mask = self._time_selection(time_period,months)
+    if mask is not None:
+      data = data[:,mask]
 
     multi = len(columns) > 1
 
@@ -394,7 +424,7 @@ class OpenwaterResults(object):
     if not found_match:
       raise Exception(f'No matching model nodes for model {model}, with column tag {columns} and constraint tags {kwargs}.')
 
-    result = pd.DataFrame(all_sequences,index=self.time_period)
+    result = pd.DataFrame(all_sequences,index=index)
     if multi:
       result.columns = pd.MultiIndex.from_tuples(result.columns, names=columns)
 
