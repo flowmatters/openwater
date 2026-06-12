@@ -3,14 +3,34 @@ from typing import List
 from . import nodes as node_types
 import pandas as pd
 import numpy as np
+import re
 from glob import glob
 import logging
 logger = logging.getLogger(__name__)
 
 temporal_agg_fns = {
   'sum':lambda a: a.sum(axis=1),
-  'mean':lambda a: a.mean(axis=1)
+  'mean':lambda a: a.mean(axis=1),
+  'min':lambda a: a.min(axis=1),
+  'max':lambda a: a.max(axis=1)
 }
+
+PERCENTILE_PATTERN = re.compile(r'^p(\d{1,2}(?:\.\d+)?)$')
+
+def resolve_temporal_agg(name):
+  '''
+  Resolve a temporal aggregator name to a function over a [runs, time] array.
+
+  Supports the named aggregators in temporal_agg_fns plus percentiles
+  expressed as 'p<q>' (eg 'p10', 'p99.5'). Raises KeyError for unknown names.
+  '''
+  if name in temporal_agg_fns:
+    return temporal_agg_fns[name]
+  m = PERCENTILE_PATTERN.match(name or '')
+  if m:
+    q = float(m.group(1))
+    return lambda a: np.percentile(a, q, axis=1)
+  raise KeyError('Unknown temporal aggregator: %s'%name)
 
 agg_fns = {
     'mean':lambda a: a.mean(axis=0),
