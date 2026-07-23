@@ -122,6 +122,118 @@ Then the naming parameter would be
 'rainfall for ${cgu} in catchment ${catchment}'
 ```
 
+### Whole-period vs. date-aligned application
+
+By default, an input timeseries is applied *positionally*: the data frame is
+assumed to align, row-for-row, with the model's timesteps, and the whole time
+axis of the matching nodes is replaced. In this mode the number of rows in the
+data frame must match the number of timesteps in the model.
+
+When modifying an *existing* model, it is often useful to apply a timeseries
+that covers only *part* of the model period — for example, replacing a single
+year of rainfall, or supplying data for a newly added period — while leaving the
+rest of the existing series untouched. This is done with `align='dates'`:
+
+```python
+inputs = DataframeInputs()
+# `new_rain` is indexed by date and only covers part of the model period
+inputs.inputter(new_rain, 'rainfall', '${catchment}', align='dates')
+```
+
+With `align='dates'`:
+
+- The data frame's `DatetimeIndex` is matched against the model's time period
+  (read from the model file), and values are written **only** at the
+  overlapping timesteps.
+- Timesteps outside the range of the supplied data frame keep their existing
+  values.
+- Rows whose dates fall outside the model period are ignored (with a warning).
+- The model must already have an input series and a time period (i.e. this is a
+  modification of an existing model file, not the initial write). To apply data
+  over the whole period, or to a freshly built model, use the default
+  positional mode.
+
+Matching is by exact timestamp, so the data frame should share the model's
+timestep frequency and phase.
+
+## Changing or extending the model time period
+
+The examples above apply data *within* a model's existing time period. A
+separate operation, `ModelFile.retime`, changes the period itself — extending a
+model with new years of data, prepending earlier data, trimming, or shifting the
+window. This is a model-wide operation: it resizes the input timeseries of
+*every* model in the file and rewrites the file's period metadata so everything
+stays consistent.
+
+```python
+from openwater.config import FillRules
+
+mf = ModelFile('model.h5')
+mf.retime(pd.date_range('2000-01-01', '2011-12-31', freq='D'))
+```
+
+Existing input values are re-aligned to the new period **by timestamp**:
+timesteps present in both the old and new periods are carried across to their
+new position, and any new timesteps that the old data does not cover are
+*filled*. As with date-aligned application, the new period should share the old
+period's frequency and phase where they overlap.
+
+### Fill rules
+
+How the newly introduced timesteps are filled is controlled by a `FillRules`
+object. Without one, uncovered timesteps default to `0.0`. Fill rules can vary
+by model and by input variable, and support three kinds of fill:
+
+- a **specific value** (e.g. `5.0`),
+- **`'zero'`** (equivalent to `0.0`), and
+- **`'ffill'`** — a *nearest-edge hold*: the last known value is carried
+  *forward* into a gap at the end of the period, and the first known value is
+  held *backward* into a gap at the start (when prepending data).
+
+```python
+rules = (FillRules(default=0.0)              # anything unspecified -> 0.0
+         .set('ffill', variable='rainfall')  # carry rainfall across new steps
+         .set(5.0, variable='pet'))          # fixed PET for new steps
+
+mf.retime(new_period, fill_rules=rules)
+```
+
+Rules resolve most-specific-first: a `(model, variable)` rule beats a
+`variable`-only rule, which beats a `model`-only rule, which beats the default.
+The `model` may be given as a model name or a model type object.
+
+```python
+rules = (FillRules(default='zero')
+         .set('ffill', variable='rainfall')                 # all models
+         .set(2.0, variable='rainfall', model='Sacramento'))  # this model only
+```
+
+Models whose inputs are supplied entirely by upstream links (i.e. that have no
+stored input timeseries) are left untouched by `retime`.
+
+### Extending a model: a worked example
+
+Adding a new year of data to an existing model typically combines both
+operations — first grow the period (filling non-supplied inputs by rule), then
+apply the new data over the added window:
+
+```python
+from openwater.config import FillRules, DataframeInputs
+
+mf = ModelFile('model.h5')
+
+# 1. Extend the period. Rainfall/PET for the new year are filled per rule
+#    until real data is applied; other inputs default to 0.0.
+rules = FillRules(default=0.0).set('ffill', variable='pet')
+mf.retime(pd.date_range('2000-01-01', '2011-12-31', freq='D'), fill_rules=rules)
+
+# 2. Apply the new year of rainfall in place (date-aligned).
+inputs = DataframeInputs()
+inputs.inputter(rain_2011, 'rainfall', '${catchment}', align='dates')
+mf._parameteriser = inputs
+mf.write()
+```
+
 ## Parameterising by quasi-dimensions
 
 If a parameter varies by a grouping that is a pure function of an existing tag — for example, a value per *reporting catchment* (groups of subcatchments) or per *constituent class* — register the grouping as a [quasi-dimension](quasi-dimensions.md) once, then use its name anywhere a real tag is accepted:

@@ -713,6 +713,18 @@ class ModelGraph(object):
             return True
         return  {n:self._graph.nodes[n] for n in self._graph.nodes if tags_match(self._graph.nodes[n])}
 
+    def prune_nodes(self,drop_if):
+        '''
+        Remove nodes where drop_if(tags_dict) is True. Returns (removed_count, removed_names).
+        Incident edges are removed by networkx. Upstream nodes may be left with unused
+        outputs and downstream nodes with one fewer input, both of which the serializer
+        and parameterisers tolerate.
+        '''
+        to_remove = [n for n in self._graph.nodes if drop_if(self._graph.nodes[n])]
+        for n in to_remove:
+            self._graph.remove_node(n)
+        return len(to_remove), to_remove
+
     # -- Quasi-dimensions ---------------------------------------------------
 
     def add_quasi_dim(self, source, *, name=None, keyed_by=None,
@@ -1343,6 +1355,68 @@ class ModelFile(object):
         finally:
             self.close()
             self._h5f = h5py.File(self.filename,'r')
+
+    def retime(self,new_time_period,fill_rules=None):
+        '''Resize (extend, trim or shift) the model's time period in place.
+
+        Every model's input timeseries is aligned to ``new_time_period`` by
+        timestamp: timesteps present in both the old and new periods are
+        carried over, and new timesteps not covered by the old data are filled
+        according to ``fill_rules``. ``META/timeperiod`` is rewritten to match.
+
+        Parameters
+        ----------
+        new_time_period : pandas.DatetimeIndex (or date sequence)
+            The new model time period.
+        fill_rules : openwater.config.FillRules, optional
+            How to fill uncovered new timesteps, per model/variable. Defaults to
+            filling with 0.0.
+
+        Notes
+        -----
+        Alignment is by exact timestamp, so the new period should share the old
+        period's frequency/phase where they overlap. Models whose inputs are
+        supplied entirely by links (no ``inputs`` dataset) are left untouched.
+        '''
+        import h5py
+        from . import config as _config
+
+        old_period = getattr(self,'time_period',None)
+        if old_period is None:
+            raise ValueError('Model file has no existing time period to retime from')
+        old_period = pd.DatetimeIndex(old_period)
+        new_period = pd.DatetimeIndex(new_time_period)
+        if fill_rules is None:
+            fill_rules = _config.FillRules(default=0.0)
+
+        src_for_new = _config.align_source_indices(old_period,new_period)
+        logger.info('Retiming %s from %d to %d timesteps (%d carried over)',
+                    self.filename,len(old_period),len(new_period),int((src_for_new>=0).sum()))
+
+        self.close()
+        try:
+            self._h5f = h5py.File(self.filename,'r+')
+            models_grp = self._h5f['MODELS']
+            for m in list(models_grp.keys()):
+                model_grp = models_grp[m]
+                if 'inputs' not in model_grp:
+                    continue
+                old_arr = model_grp['inputs'][...]
+                var_names = getattr(node_types,m).description['Inputs']
+                new_arr = _config.build_resized_input_array(old_arr,src_for_new,var_names,m,fill_rules)
+                del model_grp['inputs']
+                model_grp.create_dataset('inputs',data=new_arr,dtype=np.float64,fillvalue=0)
+
+            meta = self._h5f['META']
+            if 'timeperiod' in meta:
+                del meta['timeperiod']
+            dates = np.array([ts.isoformat() for ts in new_period],dtype=h5py.special_dtype(vlen=str))
+            meta.create_dataset('timeperiod',data=dates)
+        finally:
+            self.close()
+            self._h5f = h5py.File(self.filename,'r')
+        self.time_period = new_period
+        return self
 
     def run(self,time_period=None,results_fn=None,**kwargs):
         '''
