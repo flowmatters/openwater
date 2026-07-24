@@ -1174,6 +1174,7 @@ def _arg_parser():
   parser.add_argument('--existing', help='Use existing model structure and only convert parameters', action='store_true')
   parser.add_argument('--split',type=int,help='Split the model into multiple files (structure, parameters, initial states and input timeseries) where number is number of input timeseries files',default=0)
   parser.add_argument('--run',help='Run the converted model',action='store_true',default=False)
+  parser.add_argument('--crs',help='Coordinate reference system of the Source model coordinates (eg EPSG:3577). Veneer does not report the project CRS, so it must be declared here for the network GeoJSON files to be georeferenced correctly',default=None)
   parser.add_argument('-v','--verbose',help="Print verbose progress info", action=argparse.BooleanOptionalAction)
   parser.add_argument('-vv','--debug',help="Print debug info", action=argparse.BooleanOptionalAction)
   return parser
@@ -1202,12 +1203,17 @@ def write_model_and_metadata(model_fn,model_obj,meta,network):
     if prop in network.columns:
       del network[prop]
 
+  if getattr(network,'crs',None) is None:
+    logger.warning('Network has no CRS. The GeoJSON files written alongside %s will be read back as EPSG:4326, '\
+                   'regardless of the projection the Source model actually uses. '\
+                   'Declare the CRS when building the model (eg --crs EPSG:3577)',model_fn)
+
   links,nodes,catchments = split_network(network)
   links.to_file(model_fn.replace('.h5','.links.json'),driver='GeoJSON')
   nodes.to_file(model_fn.replace('.h5','.nodes.json'),driver='GeoJSON')
   catchments.to_file(model_fn.replace('.h5','.catchments.json'),driver='GeoJSON')
 
-def build_main(builder,model,timeperiod,openwater=None,existing=False,run=False,**kwargs):
+def build_main(builder,model,timeperiod,openwater=None,existing=False,run=False,crs=None,**kwargs):
   logger.info('Build')
   if openwater is not None:
     set_exe_path(openwater)
@@ -1226,6 +1232,11 @@ def build_main(builder,model,timeperiod,openwater=None,existing=False,run=False,
   source = os.path.abspath(os.path.join(kwargs.get('extractedfiles','.'),model))
 
   model_obj, meta, network = builder(source,existing=model_file)
+
+  # Veneer doesn't report the Source project CRS, so the builder can't know it.
+  # Declaring it here georeferences the network GeoJSON files without moving any coordinates.
+  if crs is not None and getattr(network,'crs',None) is None:
+    network = network.set_crs(crs)
 
   if timeperiod is None:
      timeperiod = [meta['start'],meta['end']]
