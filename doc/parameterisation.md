@@ -182,18 +182,22 @@ period's frequency and phase where they overlap.
 
 How the newly introduced timesteps are filled is controlled by a `FillRules`
 object. Without one, uncovered timesteps default to `0.0`. Fill rules can vary
-by model and by input variable, and support three kinds of fill:
+by model and by input variable, and support these kinds of fill:
 
-- a **specific value** (e.g. `5.0`),
-- **`'zero'`** (equivalent to `0.0`), and
+- a **specific value** (e.g. `5.0`), or **`'zero'`** (equivalent to `0.0`);
 - **`'ffill'`** — a *nearest-edge hold*: the last known value is carried
   *forward* into a gap at the end of the period, and the first known value is
-  held *backward* into a gap at the start (when prepending data).
+  held *backward* into a gap at the start (when prepending data);
+- **`'mean'`**, **`'monthly_mean'`**, **`'daily_mean'`** — average the existing
+  data and look each new timestep up in that average (see below);
+- **`climatology(...)`** and **`recycle(...)`** — the same averaging, restricted
+  to a window you choose.
 
 ```python
-rules = (FillRules(default=0.0)              # anything unspecified -> 0.0
-         .set('ffill', variable='rainfall')  # carry rainfall across new steps
-         .set(5.0, variable='pet'))          # fixed PET for new steps
+rules = (FillRules(default=0.0)                 # anything unspecified -> 0.0
+         .set('ffill', variable='rainfall')     # carry rainfall across new steps
+         .set('monthly_mean', variable='demand')  # seasonal demand pattern
+         .set(5.0, variable='pet'))             # fixed PET for new steps
 
 mf.retime(new_period, fill_rules=rules)
 ```
@@ -211,21 +215,101 @@ rules = (FillRules(default='zero')
 Models whose inputs are supplied entirely by upstream links (i.e. that have no
 stored input timeseries) are left untouched by `retime`.
 
-### Extending a model: a worked example
+Rules are keyed by model and input *name* — they cannot be scoped by a node's
+tags, so every node of a given model type shares a rule. Where that is too
+coarse, fill by rule and then overwrite the nodes that need different treatment
+with `inputter(..., align='dates')`.
 
-Adding a new year of data to an existing model typically combines both
-operations — first grow the period (filling non-supplied inputs by rule), then
-apply the new data over the added window:
+### Filling from the existing data: climatology and recycling
+
+A hold is the right fill for something that steps rarely, or not at all — a
+storage property, or an annual step function. For anything with an annual cycle
+it is usually wrong, because it freezes the series at whatever point in the year
+the record happened to end. A model ending on 30 June, extended by two years,
+would run two whole wet seasons on a late-dry-season cover factor.
+
+For those, fill from the shape the data already has. All of these group the
+carried-over timesteps, average within each group, and look each new timestep up
+by its own group:
+
+| Rule | Groups by | Fills a new timestep with |
+|---|---|---|
+| `'mean'` | nothing | the mean of the whole existing series |
+| `'monthly_mean'` | calendar month | the mean of that month across the record |
+| `'daily_mean'` | day of year | the mean of that day of year across the record |
+
+`climatology(by=..., over=...)` is the same thing with the averaging restricted
+to a window — useful when only the recent record is representative:
 
 ```python
-from openwater.config import FillRules, DataframeInputs
+from openwater.config import FillRules, climatology, recycle
+
+rules = FillRules(default=0.0).set(
+    climatology(by='month', over=('2013-07-01', '2023-06-30')),
+    variable='demand')
+```
+
+`recycle(window)` is `climatology(by='day')` over the window you name. Over a
+single year each group holds exactly one value, so instead of averaging anything
+it *repeats that year* — preserving the actual daily sequence, including
+individual events, rather than smoothing them away:
+
+```python
+# repeat the last complete water year across everything that gets added
+rules.set(recycle(('2022-07-01', '2023-06-30')), variable='CovOrCFact')
+```
+
+A `(start, end)` **tuple** is an inclusive date range; any other sequence of
+dates (a list, a `DatetimeIndex`, the result of `pd.date_range`) is used as an
+explicit set of timestamps.
+
+Two details worth knowing:
+
+- Grouping by day of year matches on **month and day**, not on the day number,
+  so the groups do not shift by one after February in a leap year. A 29 February
+  that the source window does not cover falls back to 28 February.
+- A group with no data at all falls back to the mean of the whole series, and a
+  window that covers none of the existing data falls back to the whole record
+  with a warning.
+
+### Finding out what needs filling
+
+`ModelFile.input_summary()` lists every input timeseries stored in the file —
+one row per (model, input), with how many nodes carry data, how many actually
+vary over time, and whether the input is fed by a link (in which case the stored
+values are overwritten at run time and nothing needs to be supplied):
+
+```python
+mf.input_summary(stored_only=True)   # just the rows you have to deal with
+```
+
+This is the place to start before changing a model's period: it is the only
+reliable way to find every series that has to cover the new window. It is also
+how you discover that a driver is stored in more than one place — in a converted
+Dynamic SedNet model, catchment rainfall is held in three.
+
+### Extending a model: a worked example
+
+Adding a new year of data to an existing model combines the pieces above — find
+out what has to be filled, grow the period (filling everything you do *not* have
+new data for by rule), then apply the new data over the added window:
+
+```python
+from openwater.config import FillRules, DataframeInputs, recycle
 
 mf = ModelFile('model.h5')
 
-# 1. Extend the period. Rainfall/PET for the new year are filled per rule
-#    until real data is applied; other inputs default to 0.0.
-rules = FillRules(default=0.0).set('ffill', variable='pet')
-mf.retime(pd.date_range('2000-01-01', '2011-12-31', freq='D'), fill_rules=rules)
+# 0. What has to cover the new period?
+mf.input_summary(stored_only=True)
+
+# 1. Extend the period. Everything except the rainfall we are about to supply is
+#    filled by rule: a hold for the constants, a recycled year for the seasonal
+#    series, zero for the rest.
+rules = (FillRules(default=0.0)
+         .set('ffill', variable='targetMinimumCapacity')
+         .set(recycle(('2010-01-01', '2010-12-31')), variable='demand'))
+mf.retime(pd.date_range('2000-01-01', '2011-12-31', freq='D'),
+          fill_rules=rules, repack=True)
 
 # 2. Apply the new year of rainfall in place (date-aligned).
 inputs = DataframeInputs()
@@ -233,6 +317,9 @@ inputs.inputter(rain_2011, 'rainfall', '${catchment}', align='dates')
 mf._parameteriser = inputs
 mf.write()
 ```
+
+For a full worked example on a real model — extending a converted Dynamic SedNet
+model by two years of SILO climate — see `Extend-Model-TimePeriod.ipynb`.
 
 ## Parameterising by quasi-dimensions
 

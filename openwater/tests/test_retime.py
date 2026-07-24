@@ -14,7 +14,8 @@ import h5py
 import openwater.nodes as node_types
 import openwater.config as config
 from openwater.config import (FillRules, align_source_indices,
-                              build_resized_input_array, DataframeInputs)
+                              build_resized_input_array, DataframeInputs,
+                              climatology, recycle)
 from openwater.template import ModelFile, LINK_TABLE_COLUMNS
 
 MODEL = 'RetimeTestModel'
@@ -282,3 +283,444 @@ def test_dated_subset_ignores_out_of_range(tmp_path):
         arr = f['MODELS'][MODEL]['inputs'][...]
     # only the in-range value (2000-01-04, position 3) is applied
     np.testing.assert_array_equal(arr[0, 0, :], [1, 1, 1, 50])
+
+
+# --- repack ----------------------------------------------------------------
+
+def _snapshot(path):
+    '''Everything in the file that repack must preserve.'''
+    with h5py.File(path, 'r') as f:
+        return dict(
+            attrs=dict(f.attrs),
+            inputs=f['MODELS'][MODEL]['inputs'][...],
+            map=f['MODELS'][MODEL]['map'][...],
+            map_attrs={k: list(v) for k, v in f['MODELS'][MODEL]['map'].attrs.items()},
+            timeperiod=[d.decode() if isinstance(d, bytes) else d
+                        for d in f['META']['timeperiod'][...]],
+            catchment=f['DIMENSIONS']['catchment'][...],
+            links=f['LINKS'][...],
+        )
+
+
+def _assert_same(a, b):
+    assert a['attrs'] == b['attrs']
+    np.testing.assert_array_equal(a['inputs'], b['inputs'])
+    np.testing.assert_array_equal(a['map'], b['map'])
+    assert a['map_attrs'] == b['map_attrs']
+    assert a['timeperiod'] == b['timeperiod']
+    np.testing.assert_array_equal(a['catchment'], b['catchment'])
+    np.testing.assert_array_equal(a['links'], b['links'])
+
+
+def _sized_model(tmp_path, n_timesteps=2000, n_cells=200, name='retime_model.h5'):
+    period = pd.date_range('2000-01-01', periods=n_timesteps, freq='D')
+    inputs = np.arange(n_cells * len(INPUTS) * n_timesteps,
+                       dtype=np.float64).reshape(n_cells, len(INPUTS), n_timesteps)
+    return _write_model_file(str(tmp_path / name), period, inputs), period
+
+
+def _punch_hole(path, n=500_000):
+    '''Leave an unreachable extent in the middle of the file.
+
+    HDF5 truncates free space at the *end* of a file, so the deleted dataset has
+    to be followed by something still live for the hole to persist.
+    '''
+    with h5py.File(path, 'r+') as f:
+        f.create_dataset('scratch', data=np.zeros(n, dtype=np.float64))
+        f.create_dataset('after_scratch', data=np.zeros(4, dtype=np.float64))
+    size_with_scratch = os.path.getsize(path)
+    with h5py.File(path, 'r+') as f:
+        del f['scratch']
+    return size_with_scratch
+
+
+def test_repack_preserves_everything(tmp_path):
+    path, _ = _sized_model(tmp_path, n_timesteps=50, n_cells=4)
+    with h5py.File(path, 'r+') as f:
+        f.attrs['openwater_version'] = 'test-version'
+        f.attrs['signature_hash'] = 'abc123'
+    before = _snapshot(path)
+
+    mf = ModelFile(path)
+    assert mf.repack() is mf          # chainable, like retime
+    mf.close()
+
+    _assert_same(before, _snapshot(path))
+
+
+def test_repack_leaves_model_file_usable(tmp_path):
+    path, period = _sized_model(tmp_path, n_timesteps=50, n_cells=4)
+    mf = ModelFile(path)
+    mf.repack()
+
+    assert len(mf.time_period) == len(period)
+    assert mf.time_period[-1] == period[-1]
+    assert mf.dims_for_model(MODEL) == ['catchment']
+    # the reopened handle points at the repacked file and is live
+    assert mf._h5f['MODELS'][MODEL]['inputs'].shape == (4, len(INPUTS), 50)
+    mf.close()
+
+
+def test_repack_reclaims_freed_space(tmp_path):
+    path, _ = _sized_model(tmp_path, n_timesteps=50, n_cells=4)
+    size_with_scratch = _punch_hole(path)
+
+    # deleting the dataset does not give the space back...
+    assert os.path.getsize(path) == size_with_scratch
+
+    mf = ModelFile(path)
+    mf.repack()
+    mf.close()
+
+    # ...but repacking does
+    assert os.path.getsize(path) < size_with_scratch / 2
+
+
+def test_repack_reclaims_freed_space_without_touching_contents(tmp_path):
+    path, _ = _sized_model(tmp_path, n_timesteps=50, n_cells=4)
+    before = _snapshot(path)
+    _punch_hole(path)
+
+    mf = ModelFile(path)
+    mf.repack()
+    mf.close()
+
+    _assert_same(before, _snapshot(path))
+    with h5py.File(path, 'r') as f:
+        assert 'scratch' not in f
+        assert 'after_scratch' in f       # live objects survive
+
+
+def test_repack_after_retime_shrinks_towards_the_new_data_size(tmp_path):
+    path, period = _sized_model(tmp_path)
+    original_size = os.path.getsize(path)
+
+    new_period = pd.date_range(period[0], periods=len(period) + 200, freq='D')
+    mf = ModelFile(path)
+    mf.retime(new_period)
+    retimed_size = os.path.getsize(path)
+    after_retime = _snapshot(path)
+
+    mf.repack()
+    mf.close()
+    packed_size = os.path.getsize(path)
+
+    # never larger, and close to what the extra timesteps actually warrant
+    assert packed_size <= retimed_size
+    assert packed_size < 1.2 * original_size * len(new_period) / len(period)
+    # and the contents are untouched
+    _assert_same(after_retime, _snapshot(path))
+
+
+def test_retime_repack_flag_matches_manual_repack(tmp_path):
+    period = pd.date_range('2000-01-01', periods=500, freq='D')
+    inputs = np.arange(20 * len(INPUTS) * len(period),
+                       dtype=np.float64).reshape(20, len(INPUTS), len(period))
+    new_period = pd.date_range(period[0], periods=len(period) + 100, freq='D')
+
+    manual = _write_model_file(str(tmp_path / 'manual.h5'), period, inputs)
+    mf = ModelFile(manual)
+    mf.retime(new_period)
+    mf.repack()
+    mf.close()
+
+    flagged = _write_model_file(str(tmp_path / 'flagged.h5'), period, inputs)
+    mf = ModelFile(flagged)
+    assert mf.retime(new_period, repack=True) is mf
+    mf.close()
+
+    assert os.path.getsize(flagged) == os.path.getsize(manual)
+    _assert_same(_snapshot(manual), _snapshot(flagged))
+
+
+def test_retime_does_not_repack_by_default(tmp_path):
+    path, period = _sized_model(tmp_path, n_timesteps=50, n_cells=4)
+    new_period = pd.date_range(period[0], periods=len(period) + 10, freq='D')
+
+    calls = []
+    original = ModelFile.repack
+    try:
+        ModelFile.repack = lambda self: calls.append(1) or self
+        mf = ModelFile(path)
+        mf.retime(new_period)
+        assert calls == []
+        mf.retime(new_period, repack=True)
+        assert calls == [1]
+        mf.close()
+    finally:
+        ModelFile.repack = original
+
+
+def test_repack_failure_leaves_original_intact(tmp_path, monkeypatch):
+    path, _ = _sized_model(tmp_path, n_timesteps=50, n_cells=4)
+    before = _snapshot(path)
+    size_before = os.path.getsize(path)
+
+    def boom(*args, **kwargs):
+        raise OSError('no space left on device')
+    monkeypatch.setattr(os, 'replace', boom)
+
+    mf = ModelFile(path)
+    with pytest.raises(OSError):
+        mf.repack()
+
+    # the original is untouched, the half-written copy is cleaned up, and the
+    # ModelFile is still usable
+    assert os.path.getsize(path) == size_before
+    assert not os.path.exists(path + '.repacking')
+    assert len(mf.time_period) == 50
+    mf.close()
+    _assert_same(before, _snapshot(path))
+
+
+# --- climatology / recycle fill rules ---------------------------------------
+
+def _resize(old_arr, old_period, new_period, rules, var_names=None):
+    src = align_source_indices(old_period, new_period)
+    return build_resized_input_array(old_arr, src, var_names or INPUTS, MODEL,
+                                     rules, new_period=new_period)
+
+
+def test_mean_fill_uses_the_whole_covered_record():
+    old_period = pd.date_range('2000-01-01', periods=4, freq='D')
+    new_period = pd.date_range('2000-01-01', periods=6, freq='D')
+    old = np.zeros((2, 2, 4))
+    old[:, 0, :] = [[1, 2, 3, 4], [10, 20, 30, 40]]
+
+    out = _resize(old, old_period, new_period, FillRules('mean'))
+
+    np.testing.assert_array_equal(out[:, 0, :4], old[:, 0, :])   # untouched
+    np.testing.assert_allclose(out[:, 0, 4:], [[2.5, 2.5], [25, 25]])
+
+
+def test_monthly_mean_fill_uses_the_matching_calendar_month():
+    old_period = pd.date_range('2000-01-01', '2000-12-31', freq='D')
+    new_period = pd.date_range('2000-01-01', '2001-12-31', freq='D')
+    old = np.zeros((1, 2, len(old_period)))
+    old[0, 0, :] = old_period.month * 1.0        # value == month number
+
+    out = _resize(old, old_period, new_period, FillRules('monthly_mean'))
+
+    filled = pd.Series(out[0, 0, :], index=new_period)['2001']
+    # every 2001 day takes the mean of the same month in 2000, i.e. the month number
+    np.testing.assert_allclose(filled.to_numpy(), filled.index.month)
+
+
+def test_daily_mean_fill_averages_matching_day_of_year():
+    old_period = pd.date_range('2001-01-01', '2002-12-31', freq='D')  # two non-leap years
+    new_period = pd.date_range('2001-01-01', '2003-12-31', freq='D')
+    old = np.zeros((1, 2, len(old_period)))
+    series = pd.Series(0.0, index=old_period)
+    series['2001'] = 10.0
+    series['2002'] = 20.0
+    old[0, 0, :] = series.to_numpy()
+
+    out = _resize(old, old_period, new_period, FillRules('daily_mean'))
+
+    filled = pd.Series(out[0, 0, :], index=new_period)['2003']
+    np.testing.assert_allclose(filled.to_numpy(), 15.0)          # mean of 10 and 20
+
+
+def test_recycle_reproduces_the_reference_year_exactly():
+    old_period = pd.date_range('2001-01-01', '2002-12-31', freq='D')
+    new_period = pd.date_range('2001-01-01', '2003-12-31', freq='D')
+    old = np.zeros((1, 2, len(old_period)))
+    rng = np.random.RandomState(0)
+    reference = rng.rand(365)
+    old[0, 0, :] = np.concatenate([rng.rand(365), reference])    # 2001 noise, 2002 reference
+
+    out = _resize(old, old_period, new_period,
+                  FillRules(recycle(('2002-01-01', '2002-12-31'))))
+
+    filled = pd.Series(out[0, 0, :], index=new_period)['2003']
+    np.testing.assert_allclose(filled.to_numpy(), reference)
+
+
+def test_recycle_window_can_be_an_explicit_date_index():
+    old_period = pd.date_range('2001-01-01', '2002-12-31', freq='D')
+    new_period = pd.date_range('2001-01-01', '2003-12-31', freq='D')
+    old = np.zeros((1, 2, len(old_period)))
+    old[0, 0, :] = np.concatenate([np.full(365, 1.0), np.full(365, 7.0)])
+
+    window = pd.date_range('2002-01-01', '2002-12-31', freq='D')
+    out = _resize(old, old_period, new_period, FillRules(recycle(window)))
+
+    np.testing.assert_allclose(pd.Series(out[0, 0, :], index=new_period)['2003'], 7.0)
+
+
+def test_recycle_falls_back_to_28_feb_for_a_leap_day():
+    # reference year has no 29 Feb; the extension does
+    old_period = pd.date_range('2022-01-01', '2023-12-31', freq='D')
+    new_period = pd.date_range('2022-01-01', '2024-12-31', freq='D')
+    old = np.zeros((1, 2, len(old_period)))
+    series = pd.Series(1.0, index=old_period)
+    series['2023-02-28'] = 99.0
+    old[0, 0, :] = series.to_numpy()
+
+    out = _resize(old, old_period, new_period,
+                  FillRules(recycle(('2023-01-01', '2023-12-31'))))
+
+    filled = pd.Series(out[0, 0, :], index=new_period)
+    assert filled['2024-02-29'] == 99.0          # borrowed from 28 Feb
+    assert filled['2024-02-28'] == 99.0
+
+
+def test_climatology_over_a_window_ignores_data_outside_it():
+    old_period = pd.date_range('2001-01-01', '2002-12-31', freq='D')
+    new_period = pd.date_range('2001-01-01', '2003-12-31', freq='D')
+    old = np.zeros((1, 2, len(old_period)))
+    old[0, 0, :] = np.concatenate([np.full(365, 1000.0), np.full(365, 5.0)])
+
+    out = _resize(old, old_period, new_period,
+                  FillRules(climatology(by=None, over=('2002-01-01', '2002-12-31'))))
+
+    np.testing.assert_allclose(pd.Series(out[0, 0, :], index=new_period)['2003'], 5.0)
+
+
+def test_climatology_fills_leading_gaps_too():
+    old_period = pd.date_range('2002-01-01', '2002-12-31', freq='D')
+    new_period = pd.date_range('2001-01-01', '2002-12-31', freq='D')
+    old = np.zeros((1, 2, len(old_period)))
+    old[0, 0, :] = old_period.month * 1.0
+
+    out = _resize(old, old_period, new_period, FillRules('monthly_mean'))
+
+    filled = pd.Series(out[0, 0, :], index=new_period)['2001']
+    np.testing.assert_allclose(filled.to_numpy(), filled.index.month)
+
+
+def test_climatology_window_missing_data_warns_and_uses_whole_record(caplog):
+    old_period = pd.date_range('2001-01-01', periods=10, freq='D')
+    new_period = pd.date_range('2001-01-01', periods=12, freq='D')
+    old = np.zeros((1, 2, 10))
+    old[0, 0, :] = 4.0
+
+    with caplog.at_level('WARNING'):
+        out = _resize(old, old_period, new_period,
+                      FillRules(climatology(by=None, over=('1990-01-01', '1990-12-31'))))
+
+    assert 'covers none of the existing data' in caplog.text
+    np.testing.assert_allclose(out[0, 0, 10:], 4.0)
+
+
+def test_climatology_rule_without_dates_raises():
+    old = np.zeros((1, 2, 4))
+    src = np.array([0, 1, 2, 3, -1, -1])
+    with pytest.raises(ValueError, match='needs the dates'):
+        build_resized_input_array(old, src, INPUTS, MODEL, FillRules('monthly_mean'))
+
+
+def test_fill_rule_aliases_and_factories_normalise():
+    assert FillRules('mean').rule_for(MODEL, 'x') == ('climatology', None, None)
+    assert FillRules('monthly').rule_for(MODEL, 'x') == ('climatology', 'month', None)
+    assert FillRules('day_of_year').rule_for(MODEL, 'x') == ('climatology', 'day', None)
+    assert climatology(by='month') == ('climatology', 'month', None)
+    assert recycle(('2000-01-01', '2000-12-31'))[:2] == ('climatology', 'day')
+    with pytest.raises(ValueError):
+        climatology(by='fortnightly')
+    with pytest.raises(ValueError):
+        climatology(over=('2000-01-01', '2000-06-30', '2001-01-01'))
+    with pytest.raises(ValueError):
+        recycle(None)
+
+
+def test_climatology_rules_mix_with_other_rules_per_variable(tmp_path):
+    old_period = pd.date_range('2001-01-01', '2002-12-31', freq='D')
+    new_period = pd.date_range('2001-01-01', '2003-12-31', freq='D')
+    inputs = np.zeros((1, 2, len(old_period)))
+    inputs[0, 0, :] = 3.0                                   # rainfall
+    inputs[0, 1, :] = old_period.month * 1.0                # pet
+    path = _write_model_file(_model_path(tmp_path), old_period, inputs)
+
+    rules = (FillRules(default=0.0)
+             .set('ffill', variable='rainfall')
+             .set('monthly_mean', variable='pet'))
+
+    mf = ModelFile(path)
+    mf.retime(new_period, fill_rules=rules)
+    mf.close()
+
+    with h5py.File(path, 'r') as f:
+        arr = f['MODELS'][MODEL]['inputs'][...]
+    filled = pd.Series(arr[0, 1, :], index=new_period)['2003']
+    np.testing.assert_allclose(arr[0, 0, :], 3.0)                        # ffill
+    np.testing.assert_allclose(filled.to_numpy(), filled.index.month)    # monthly mean
+
+
+# --- input_summary ---------------------------------------------------------
+
+def test_input_summary_reports_every_stored_input(tmp_path):
+    period = pd.date_range('2000-01-01', periods=6, freq='D')
+    inputs = np.zeros((3, 2, 6))
+    inputs[0, 0, :] = [1, 2, 3, 4, 5, 6]     # varying
+    inputs[1, 0, :] = 5.0                    # active but constant
+    #  cell 2 rainfall, and all of pet, left at zero
+
+    path = _write_model_file(_model_path(tmp_path), period, inputs)
+    mf = ModelFile(path)
+    summary = mf.input_summary()
+    mf.close()
+
+    assert list(summary.columns) == ['model', 'input', 'cells', 'link_fed',
+                                     'active_cells', 'time_varying_cells']
+    rain = summary[summary.input == 'rainfall'].iloc[0]
+    assert rain.model == MODEL
+    assert rain.cells == 3
+    assert not rain.link_fed
+    assert rain.active_cells == 2
+    assert rain.time_varying_cells == 1
+
+    pet = summary[summary.input == 'pet'].iloc[0]
+    assert pet.active_cells == 0
+
+
+def test_input_summary_stored_only_drops_empty_and_link_fed(tmp_path):
+    period = pd.date_range('2000-01-01', periods=6, freq='D')
+    inputs = np.zeros((2, 2, 6))
+    inputs[:, 0, :] = 1.0                    # rainfall active, pet empty
+    path = _write_model_file(_model_path(tmp_path), period, inputs)
+
+    mf = ModelFile(path)
+    assert len(mf.input_summary()) == 2
+    stored = mf.input_summary(stored_only=True)
+    mf.close()
+
+    assert list(stored.input) == ['rainfall']       # pet is empty
+    assert list(stored.index) == [0]                # index reset
+
+
+def test_input_summary_flags_link_fed_inputs(tmp_path):
+    period = pd.date_range('2000-01-01', periods=6, freq='D')
+    inputs = np.ones((2, 2, 6))
+    path = _write_model_file(_model_path(tmp_path), period, inputs)
+
+    # one link into pet (input index 1) of node 0
+    with h5py.File(path, 'r+') as f:
+        del f['LINKS']
+        row = np.zeros((1, len(LINK_TABLE_COLUMNS)), dtype=np.uint32)
+        row[0, LINK_TABLE_COLUMNS.index('dest_var')] = INPUTS.index('pet')
+        f.create_dataset('LINKS', dtype=np.uint32, data=row)
+
+    mf = ModelFile(path)
+    summary = mf.input_summary().set_index('input')
+    stored = mf.input_summary(stored_only=True)
+    mf.close()
+
+    assert not summary.loc['rainfall', 'link_fed']
+    assert summary.loc['pet', 'link_fed']
+    assert list(stored.input) == ['rainfall']       # link-fed rows are dropped
+
+
+def test_input_summary_skips_models_without_stored_inputs(tmp_path):
+    period = pd.date_range('2000-01-01', periods=6, freq='D')
+    path = _write_model_file(_model_path(tmp_path), period, np.zeros((2, 2, 6)))
+    with h5py.File(path, 'r+') as f:
+        del f['MODELS'][MODEL]['inputs']
+
+    mf = ModelFile(path)
+    summary = mf.input_summary()
+    mf.close()
+
+    assert summary.empty
+    assert list(summary.columns) == ['model', 'input', 'cells', 'link_fed',
+                                     'active_cells', 'time_varying_cells']

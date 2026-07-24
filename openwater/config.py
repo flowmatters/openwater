@@ -18,14 +18,82 @@ def _model_key(model):
 
 
 # Normalised fill-rule representations:
-#   ('value', float)  -- fill uncovered timesteps with a constant
-#   ('ffill',)        -- nearest-edge hold (carry last value into trailing gaps,
-#                        first value into leading gaps)
+#   ('value', float)          -- fill uncovered timesteps with a constant
+#   ('ffill',)                -- nearest-edge hold (carry last value into trailing
+#                                gaps, first value into leading gaps)
+#   ('climatology', by, over) -- average the covered timesteps, grouped by `by`
+#                                (None -> whole series, 'month', 'day'), optionally
+#                                restricted to the window `over`, and look the gap
+#                                timesteps up in that average
 _FFILL_ALIASES = {'ffill','forward','forward_fill','forward-fill','edge','hold','nearest'}
+
+_CLIMATOLOGY_ALIASES = {
+    'mean':None, 'average':None,
+    'monthly_mean':'month', 'monthly':'month', 'month':'month',
+    'daily_mean':'day', 'daily':'day', 'day':'day',
+    'dayofyear':'day', 'day_of_year':'day', 'day-of-year':'day',
+}
+
+
+def _normalise_group_by(by):
+    if by is None:
+        return None
+    key = str(by).strip().lower()
+    if key in _CLIMATOLOGY_ALIASES:
+        return _CLIMATOLOGY_ALIASES[key]
+    raise ValueError("Unknown grouping: %r (expected None, 'month' or 'day')"%(by,))
+
+
+def _normalise_window(over):
+    '''Normalise a climatology window.
+
+    A *tuple* is an inclusive (start, end) date range; any other sequence (list,
+    DatetimeIndex, the result of ``pd.date_range``) is an explicit set of
+    timestamps. ``None`` means the whole carried-over record.
+    '''
+    if over is None:
+        return None
+    if isinstance(over,tuple):
+        if len(over) != 2:
+            raise ValueError('A tuple window must be (start, end); got %d values'%len(over))
+        return ('range',pd.Timestamp(over[0]),pd.Timestamp(over[1]))
+    return ('dates',pd.DatetimeIndex(over))
+
+
+def climatology(by='day',over=None):
+    '''A fill rule that averages the existing data and looks gaps up in it.
+
+    Parameters
+    ----------
+    by : {'day', 'month', None}
+        Group the existing values by day of year (matched on month and day),
+        by calendar month, or not at all (a single mean over the whole series).
+    over : optional
+        Restrict the averaging to a window. A ``(start, end)`` tuple is an
+        inclusive date range; any other sequence of dates is used as-is. Defaults
+        to every timestep carried over from the old period.
+    '''
+    return ('climatology',_normalise_group_by(by),_normalise_window(over))
+
+
+def recycle(over):
+    '''A fill rule that repeats a specific window of the existing data.
+
+    ``recycle(('2022-07-01','2023-06-30'))`` fills each new timestep with the
+    value the series had on the same month and day of that window — so a single
+    year of data repeats across the extension, preserving its seasonal shape.
+
+    This is :func:`climatology` grouped by day over a restricted window; with a
+    one-year window each group holds a single value, so the original daily
+    sequence is reproduced exactly rather than averaged.
+    '''
+    if over is None:
+        raise ValueError('recycle() needs a window to recycle')
+    return climatology(by='day',over=over)
 
 
 def _normalise_fill(rule):
-    if isinstance(rule,tuple) and len(rule) and rule[0] in ('value','ffill'):
+    if isinstance(rule,tuple) and len(rule) and rule[0] in ('value','ffill','climatology'):
         return rule
     if isinstance(rule,str):
         key = rule.strip().lower()
@@ -33,6 +101,8 @@ def _normalise_fill(rule):
             return ('ffill',)
         if key == 'zero':
             return ('value',0.0)
+        if key in _CLIMATOLOGY_ALIASES:
+            return climatology(by=_CLIMATOLOGY_ALIASES[key])
         raise ValueError(f'Unknown fill rule: {rule!r}')
     if isinstance(rule,(int,float,np.integer,np.floating)):
         return ('value',float(rule))
@@ -43,15 +113,35 @@ class FillRules(object):
     '''Rules for filling new/uncovered timesteps when resizing a model's period.
 
     Rules resolve most-specific-first: (model, variable) -> variable -> model
-    -> default. A rule is a specific numeric value, ``'zero'`` (== 0.0) or
-    ``'ffill'`` (nearest-edge hold: carry the last known value into trailing
-    gaps and the first known value into leading gaps).
+    -> default. A rule is one of:
+
+    * a specific numeric value, or ``'zero'`` (== 0.0);
+    * ``'ffill'`` -- nearest-edge hold: carry the last known value into trailing
+      gaps and the first known value into leading gaps;
+    * ``'mean'``, ``'monthly_mean'`` or ``'daily_mean'`` -- average the existing
+      data (over the whole series, per calendar month, or per day of year) and
+      look each gap timestep up in that average;
+    * :func:`climatology` or :func:`recycle` -- the same averaging, restricted to
+      a chosen window. ``recycle`` over a single year repeats that year's daily
+      values rather than averaging anything.
+
+    A hold is the right fill for something that steps rarely, or not at all. For
+    anything with an annual cycle it is usually wrong, because it freezes the
+    series at whatever point in the year the record happened to end -- prefer a
+    daily or monthly mean, or recycle a representative year.
 
     Example
     -------
     >>> rules = (FillRules(default=0.0)
     ...          .set('ffill', variable='rainfall')
+    ...          .set('monthly_mean', variable='demand')
+    ...          .set(recycle(('2022-07-01', '2023-06-30')), variable='CovOrCFact')
     ...          .set(5.0, variable='pet', model='GR4J'))
+
+    Note that rules are keyed by model and input name only -- they cannot be
+    scoped by a node's tags, so every node of a given model type shares a rule.
+    Where that is too coarse, fill by rule and then overwrite the nodes that need
+    different treatment with ``DataframeInputs.inputter(..., align='dates')``.
     '''
     def __init__(self,default=0.0):
         self._default = _normalise_fill(default)
@@ -114,12 +204,81 @@ def _edge_hold(plane,covered):
     return filled.T
 
 
-def build_resized_input_array(old_arr,src_for_new,var_names,model,fill_rules):
+def _group_codes(dates,by):
+    '''Integer group codes for a DatetimeIndex. 'day' codes as MMDD, so 29 Feb
+    is 229 and its fallback, 28 Feb, is 228.'''
+    if by == 'month':
+        return np.asarray(dates.month)
+    if by == 'day':
+        return np.asarray(dates.month)*100 + np.asarray(dates.day)
+    raise ValueError('Unknown grouping: %r'%(by,))
+
+
+def _in_window(dates,window):
+    if window is None:
+        return np.ones(len(dates),dtype=bool)
+    if window[0] == 'range':
+        return np.asarray((dates >= window[1]) & (dates <= window[2]))
+    return np.asarray(dates.isin(window[1]))
+
+
+FEB_29,FEB_28 = 229,228
+
+
+def _climatology_fill(plane,covered,dates,by,over,label=''):
+    '''Fill the uncovered timesteps of one input from an average of the covered ones.
+
+    ``plane`` is (n_cells, n_timesteps) with the carried-over values already in
+    place; ``covered`` marks those timesteps and ``dates`` gives every timestep's
+    date. Gap timesteps take the mean of the covered values sharing their group
+    (see ``by``), computed over ``over`` if given. Groups with no data fall back
+    to the overall mean — via 28 Feb first, for a 29 Feb that the source window
+    does not cover.
+    '''
+    gap = ~covered
+    if not gap.any() or not covered.any():
+        return plane
+
+    source = covered & _in_window(dates,over)
+    if not source.any():
+        logger.warning('Climatology window for %s covers none of the existing data; '
+                       'falling back to the whole carried-over record',label or 'input')
+        source = covered
+
+    values = plane[:,source]
+    overall = values.mean(axis=1)
+
+    if by is None:
+        plane[:,gap] = overall[:,None]
+        return plane
+
+    means = pd.DataFrame(values.T).groupby(_group_codes(dates[source],by)).mean()
+    target = _group_codes(dates[gap],by)
+
+    filled = np.array(means.reindex(target).to_numpy(),dtype=float)
+    missing = np.isnan(filled).all(axis=1)
+    if by == 'day' and missing.any():           # 29 Feb -> 28 Feb
+        leap = missing & (target == FEB_29)
+        if leap.any():
+            filled[leap] = means.reindex(np.full(int(leap.sum()),FEB_28)).to_numpy()
+            missing = np.isnan(filled).all(axis=1)
+    if missing.any():
+        filled[missing] = overall
+
+    plane[:,gap] = filled.T
+    return plane
+
+
+def build_resized_input_array(old_arr,src_for_new,var_names,model,fill_rules,new_period=None):
     '''Build a resized (n_cells, n_inputs, T_new) input array from ``old_arr``.
 
     ``src_for_new`` (see align_source_indices) maps each new timestep to an old
     timestep index or -1. Carried-over timesteps are copied; the remainder is
     filled per ``fill_rules`` (keyed by model + input variable name).
+
+    ``new_period`` is the DatetimeIndex of the resized array, and is required
+    only when a rule needs to know the date of each timestep (the climatology and
+    recycle rules).
     '''
     n_cells,n_inputs,_ = old_arr.shape
     src_for_new = np.asarray(src_for_new)
@@ -131,6 +290,12 @@ def build_resized_input_array(old_arr,src_for_new,var_names,model,fill_rules):
     if covered.all():
         return new_arr
 
+    if new_period is not None:
+        new_period = pd.DatetimeIndex(new_period)
+        if len(new_period) != T_new:
+            raise ValueError('new_period has %d timesteps but the resized array has %d'
+                             %(len(new_period),T_new))
+
     gap = ~covered
     for input_num,var in enumerate(var_names):
         kind = fill_rules.rule_for(model,var)
@@ -139,6 +304,16 @@ def build_resized_input_array(old_arr,src_for_new,var_names,model,fill_rules):
                 new_arr[:,input_num,gap] = kind[1]
         elif kind[0] == 'ffill':
             new_arr[:,input_num,:] = _edge_hold(new_arr[:,input_num,:],covered)
+        elif kind[0] == 'climatology':
+            if new_period is None:
+                raise ValueError(
+                    'The %s fill rule for %s.%s needs the dates of the new period. '
+                    'Pass new_period= to build_resized_input_array (ModelFile.retime '
+                    'does this for you).'%(kind[1] or 'mean',model,var))
+            _,by,over = kind
+            new_arr[:,input_num,:] = _climatology_fill(
+                new_arr[:,input_num,:],covered,new_period,by,over,
+                label='%s.%s'%(model,var))
     return new_arr
 
 

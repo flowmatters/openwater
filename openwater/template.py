@@ -1298,6 +1298,111 @@ class ModelFile(object):
             annotate_tbl('dest')
         return linkages
 
+    def input_summary(self,stored_only=False):
+        '''Summarise every input timeseries stored in the file.
+
+        Returns one row per (model, input) for each model type that has a stored
+        ``inputs`` array, with:
+
+        * ``cells`` -- how many nodes of that model type there are;
+        * ``link_fed`` -- whether the input is supplied by a link, in which case
+          the stored values are overwritten at run time and nothing needs to be
+          supplied for it;
+        * ``active_cells`` -- nodes whose series is not all zero;
+        * ``time_varying_cells`` -- nodes whose series actually changes over time
+          (a constant non-zero series is usually a property, not a timeseries).
+
+        This is the starting point for changing a model's time period: the rows
+        that are *not* link-fed and have ``active_cells > 0`` are the series that
+        have to be given sensible values over any period that is added. It is
+        also a quick way to find out where a given driver is stored -- in a
+        converted Dynamic SedNet model, for example, catchment rainfall is held
+        in three separate places.
+
+        Parameters
+        ----------
+        stored_only : bool, optional
+            Return only the rows that need supplying -- not link-fed, and not
+            already empty. Defaults to False (every row).
+
+        Returns
+        -------
+        pandas.DataFrame
+        '''
+        links = self.link_table()
+        rows = []
+        models_grp = self._h5f['MODELS']
+        for name in sorted(models_grp.keys()):
+            grp = models_grp[name]
+            if 'inputs' not in grp:
+                continue
+            arr = grp['inputs']
+            inputs = list(getattr(node_types,name).description['Inputs'])
+            linked = set(links[links.dest_model==name].dest_var)
+            for i,var in enumerate(inputs):
+                plane = arr[:,i,:]
+                rows.append(dict(
+                    model=name,
+                    input=var,
+                    cells=arr.shape[0],
+                    link_fed=var in linked,
+                    active_cells=int((plane!=0).any(axis=1).sum()),
+                    time_varying_cells=int((plane.max(axis=1)!=plane.min(axis=1)).sum()),
+                ))
+        summary = pd.DataFrame(rows,columns=['model','input','cells','link_fed',
+                                             'active_cells','time_varying_cells'])
+        if stored_only:
+            summary = summary[(~summary.link_fed) & (summary.active_cells>0)].reset_index(drop=True)
+        return summary
+
+    def repack(self):
+        '''Rewrite the file, reclaiming the space freed by deleted datasets.
+
+        HDF5 does not return the space used by a deleted dataset to the
+        filesystem, and only reuses it for a later allocation that fits.
+        Anything that replaces a dataset with a differently sized one therefore
+        leaves the old extent behind as a hole in the file — most obviously
+        :meth:`retime`, which has to delete and recreate every input array
+        because an HDF5 dataset cannot be reshaped in place, but also
+        ``write(clear_inputs=True)``.
+
+        Repacking copies every live object into a fresh file and swaps it in,
+        which leaves the holes behind. The file's contents are unchanged.
+
+        Notes
+        -----
+        A second copy of the file exists alongside the original while the copy
+        runs, so the filesystem needs room for both. Any other open handle to
+        this path (including an ``OpenwaterResults`` opened from it) will still
+        refer to the pre-repack file and should be reopened.
+
+        Returns self.
+        '''
+        import h5py
+
+        before = os.path.getsize(self.filename)
+        tmp_fn = self.filename + '.repacking'
+        self.close()
+        try:
+            try:
+                with h5py.File(self.filename,'r') as src, h5py.File(tmp_fn,'w') as dest:
+                    for key,value in src.attrs.items():
+                        dest.attrs[key] = value
+                    for name in src:
+                        src.copy(name,dest,name=name,expand_refs=True)
+                os.replace(tmp_fn,self.filename)
+            except BaseException:
+                if os.path.exists(tmp_fn):
+                    os.remove(tmp_fn)
+                raise
+        finally:
+            self._h5f = h5py.File(self.filename,'r')
+
+        after = os.path.getsize(self.filename)
+        logger.info('Repacked %s: %d -> %d bytes (reclaimed %d)',
+                    self.filename,before,after,before-after)
+        return self
+
     def close(self):
         self._h5f.close()
         self._h5f = None
@@ -1356,7 +1461,7 @@ class ModelFile(object):
             self.close()
             self._h5f = h5py.File(self.filename,'r')
 
-    def retime(self,new_time_period,fill_rules=None):
+    def retime(self,new_time_period,fill_rules=None,repack=False):
         '''Resize (extend, trim or shift) the model's time period in place.
 
         Every model's input timeseries is aligned to ``new_time_period`` by
@@ -1371,12 +1476,20 @@ class ModelFile(object):
         fill_rules : openwater.config.FillRules, optional
             How to fill uncovered new timesteps, per model/variable. Defaults to
             filling with 0.0.
+        repack : bool, optional
+            Repack the file afterwards (see :meth:`repack`) to reclaim the space
+            HDF5 leaves behind when the old input arrays are deleted. Defaults to
+            False, because repacking needs room for a second copy of the file
+            while it runs.
 
         Notes
         -----
         Alignment is by exact timestamp, so the new period should share the old
         period's frequency/phase where they overlap. Models whose inputs are
         supplied entirely by links (no ``inputs`` dataset) are left untouched.
+
+        Resizing the input arrays leaves the file larger than the change in
+        timesteps warrants — see :meth:`repack`.
         '''
         import h5py
         from . import config as _config
@@ -1393,6 +1506,7 @@ class ModelFile(object):
         logger.info('Retiming %s from %d to %d timesteps (%d carried over)',
                     self.filename,len(old_period),len(new_period),int((src_for_new>=0).sum()))
 
+        size_before = os.path.getsize(self.filename)
         self.close()
         try:
             self._h5f = h5py.File(self.filename,'r+')
@@ -1403,7 +1517,8 @@ class ModelFile(object):
                     continue
                 old_arr = model_grp['inputs'][...]
                 var_names = getattr(node_types,m).description['Inputs']
-                new_arr = _config.build_resized_input_array(old_arr,src_for_new,var_names,m,fill_rules)
+                new_arr = _config.build_resized_input_array(old_arr,src_for_new,var_names,m,
+                                                            fill_rules,new_period=new_period)
                 del model_grp['inputs']
                 model_grp.create_dataset('inputs',data=new_arr,dtype=np.float64,fillvalue=0)
 
@@ -1416,6 +1531,18 @@ class ModelFile(object):
             self.close()
             self._h5f = h5py.File(self.filename,'r')
         self.time_period = new_period
+
+        if repack:
+            self.repack()
+        else:
+            # Resizing every input array orphans the old extents. Point this out
+            # rather than leaving the caller to wonder why the file grew.
+            size_after = os.path.getsize(self.filename)
+            expected = size_before * len(new_period) / max(len(old_period),1)
+            if size_after > 1.1 * expected:
+                logger.info('%s grew from %d to %d bytes; call repack() to reclaim '
+                            'the space freed by the resized input arrays',
+                            self.filename,size_before,size_after)
         return self
 
     def run(self,time_period=None,results_fn=None,**kwargs):
