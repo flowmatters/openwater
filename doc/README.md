@@ -24,7 +24,7 @@ The underlying model algortihms are implemented in Golang, with higher level mod
 
 **TODO: Figure demonstrating layered approach.
 
-Software requirements are described [here](environment.md)
+Software requirements are described [here](environment.md), and installing and activating the Openwater Core binaries &mdash; including working out which version a model file needs &mdash; is described in [Getting set up](installation.md).
 
 In addition to working through Python, it is possible to access some of the features of Openwater using standalone, [command line programs](programs.md).
 

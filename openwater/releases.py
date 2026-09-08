@@ -10,7 +10,7 @@ import io
 import zipfile
 import shutil
 from glob import glob
-from typing import Optional, List, Dict
+from typing import NamedTuple, Optional, List, Dict
 
 SEMVER_PREFIX_RE = re.compile(r'^\d+\.\d+\.\d+')
 
@@ -357,6 +357,42 @@ def find_installed(version: str, dest: Optional[str] = None) -> List[Dict]:
     return matches
 
 
+def _install_release_under(release: Dict, base: Optional[str] = None,
+                           force: bool = False) -> str:
+    """
+    Install *release* into <base>/<version>.
+
+    download_release() takes the installation directory itself; this applies
+    the base-directory convention used by list_installed()/find_installed()/
+    use(), so that an explicit base directory still yields one subdirectory
+    per version rather than overwriting the base.
+    """
+    base = base or os.path.expanduser(DEST_RELATIVE)
+    version_str = release['tag_name'].lstrip('v')
+    return download_release(release, dest=os.path.join(base, version_str),
+                            force=force)
+
+
+def _activate_path(install_path: str) -> str:
+    """Point discovery at an installation directory and report the version."""
+    from . import discovery
+
+    version = os.path.basename(install_path.rstrip(os.sep))
+    version_file = os.path.join(install_path, 'VERSION.txt')
+    if os.path.isfile(version_file):
+        with open(version_file) as f:
+            for line in f:
+                key, _, value = line.partition(':')
+                if key.strip().lower() == 'version':
+                    version = value.strip()
+                    break
+
+    discovery.set_exe_path(install_path)
+    discovery.discover()
+    print(f"Using OpenWater Core {version}")
+    return version
+
+
 def use(version: str, dest: Optional[str] = None):
     """
     Activate an installed release.
@@ -368,6 +404,9 @@ def use(version: str, dest: Optional[str] = None):
     Parameters:
         version: Version string. See find_installed() for accepted forms.
         dest: Base installations directory (defaults to ~/.openwater/installations)
+
+    Returns:
+        The version string that was activated.
 
     Raises:
         ValueError: If no installed release matches.
@@ -397,6 +436,8 @@ def use(version: str, dest: Optional[str] = None):
     else:
         print(f"Using OpenWater Core {resolved}")
 
+    return resolved
+
 
 def use_latest(dest: Optional[str] = None, install: bool = False,
                org: str = DEFAULT_ORG, repo: str = DEFAULT_REPO):
@@ -411,13 +452,17 @@ def use_latest(dest: Optional[str] = None, install: bool = False,
         org: GitHub organization (used when install=True)
         repo: Repository name (used when install=True)
 
+    Returns:
+        The version string that was activated.
+
     Raises:
         ValueError: If no releases are installed and install is False.
     """
     if install:
-        path = install_latest(org=org, repo=repo, dest=dest)
-        version = os.path.basename(path)
-        return use(version, dest=dest)
+        release = latest_release(org=org, repo=repo)
+        if not release:
+            raise ValueError("No releases found")
+        return _activate_path(_install_release_under(release, base=dest))
 
     installed = list_installed(dest=dest)
     if not installed:
@@ -428,6 +473,235 @@ def use_latest(dest: Optional[str] = None, install: bool = False,
 
     # Sort by published date to find the newest installation
     installed.sort(key=lambda r: r.get('published', ''), reverse=True)
-    latest = installed[0]
-    use(latest.get('version', os.path.basename(latest['path'])),
-        dest=dest)
+    return _activate_path(installed[0]['path'])
+
+
+# ── model file inspection ───────────────────────────────────────────
+
+class ModelFileVersion(NamedTuple):
+    """The openwater-core build that wrote a model file.
+
+    Unpacks as ``(version, signature_hash)``.
+    """
+    version: Optional[str]
+    signature_hash: Optional[str]
+    created_by: Optional[str] = None
+    created_timestamp: Optional[str] = None
+
+
+def _decode_attr(value) -> Optional[str]:
+    """Normalise an HDF5 attribute to a plain str (or None)."""
+    if value is None:
+        return None
+    if isinstance(value, bytes):
+        return value.decode('utf-8')
+    return str(value)
+
+
+def model_file_version(model_fn: str) -> ModelFileVersion:
+    """
+    Read the openwater-core version metadata recorded in a model file.
+
+    These attributes are written by OWTemplate.write_model() at the root of
+    the HDF5 file. Files written before version stamping was introduced will
+    have None for the corresponding fields.
+
+    Parameters:
+        model_fn: Path to an openwater model (HDF5) file
+
+    Returns:
+        ModelFileVersion(version, signature_hash, created_by, created_timestamp).
+        Unpacks as a (version, signature_hash) pair.
+
+    Raises:
+        OSError: If the file cannot be opened as HDF5.
+    """
+    import h5py
+
+    with h5py.File(model_fn, 'r') as f:
+        attrs = {k: _decode_attr(f.attrs.get(k))
+                 for k in ('openwater_version', 'signature_hash',
+                           'created_by', 'created_timestamp')}
+
+    version = attrs['openwater_version']
+    if version == 'unknown':
+        version = None
+
+    sighash = attrs['signature_hash']
+    if sighash in (None, 'unknown') and version:
+        # Version format is X.Y.Z+BUILD[-BRANCH].SIGHASH
+        from . import lib
+        sighash = lib.extract_signature_hash(version)
+    if sighash == 'unknown':
+        sighash = None
+
+    return ModelFileVersion(version, sighash,
+                            attrs['created_by'], attrs['created_timestamp'])
+
+
+def find_release_for_signature(signature_hash: str, org: str = DEFAULT_ORG,
+                               repo: str = DEFAULT_REPO) -> Optional[Dict]:
+    """
+    Find the most recent remote release whose tag carries a given signature hash.
+
+    Release tags end in '.<signature hash>' (X.Y.Z+BUILD[-BRANCH].SIGHASH), so
+    any release matching the hash is model-file compatible.
+
+    Parameters:
+        signature_hash: Model signature hash to match
+        org: GitHub organization
+        repo: Repository name
+
+    Returns:
+        Release dictionary, or None if no release matches.
+    """
+    suffix = '.' + signature_hash.lstrip('.')
+    for release in get_releases(org=org, repo=repo):
+        if release['tag_name'].endswith(suffix):
+            return release
+    return None
+
+
+def _find_release_for_model(mfv: ModelFileVersion, org: str, repo: str) -> Dict:
+    """Resolve the remote release matching a model file's version metadata."""
+    if mfv.version:
+        release = get_release_by_tag('v' + mfv.version.lstrip('v'),
+                                     org=org, repo=repo)
+        if release:
+            return release
+
+    if mfv.signature_hash:
+        release = find_release_for_signature(mfv.signature_hash,
+                                             org=org, repo=repo)
+        if release:
+            return release
+
+    raise ValueError(
+        f"No release found matching model file version "
+        f"'{mfv.version or mfv.signature_hash}'."
+    )
+
+
+def _require_model_version(model_fn: str) -> ModelFileVersion:
+    """Read a model file's version metadata, or explain why we can't."""
+    mfv = model_file_version(model_fn)
+    if not (mfv.version or mfv.signature_hash):
+        raise ValueError(
+            f"{model_fn} records no openwater-core version metadata "
+            f"(written by an older openwater-py?). "
+            f"Activate a release explicitly with use() or use_latest()."
+        )
+    return mfv
+
+
+def find_installed_for_model(model_fn: str,
+                             dest: Optional[str] = None) -> List[Dict]:
+    """
+    Find installed releases that can run a given model file, best match first.
+
+    Matches on the file's full version string first, then on its model
+    signature hash — any build with the same signature has the same model
+    interfaces and can run the file.
+
+    Parameters:
+        model_fn: Path to an openwater model (HDF5) file
+        dest: Base installations directory (defaults to ~/.openwater/installations)
+
+    Returns:
+        List of installation info dicts (as from list_installed()), exact
+        version matches first. Empty if nothing suitable is installed.
+
+    Raises:
+        ValueError: If the file records no version metadata.
+    """
+    return _installed_for_version(_require_model_version(model_fn), dest=dest)
+
+
+def _installed_for_version(mfv: ModelFileVersion,
+                           dest: Optional[str] = None) -> List[Dict]:
+    """Installed releases matching a model file's version, best match first."""
+    matches: List[Dict] = []
+    seen = set()
+    for query in (mfv.version, mfv.signature_hash):
+        if not query:
+            continue
+        for info in find_installed(query, dest=dest):
+            if info['path'] not in seen:
+                seen.add(info['path'])
+                matches.append(info)
+    return matches
+
+
+def install_for_model(model_fn: str, org: str = DEFAULT_ORG,
+                      repo: str = DEFAULT_REPO, dest: Optional[str] = None,
+                      force: bool = False) -> str:
+    """
+    Download and install the openwater-core release that a model file was built with.
+
+    Matches on the file's full version string where possible, otherwise on its
+    model signature hash (any release with the same signature is compatible).
+
+    Parameters:
+        model_fn: Path to an openwater model (HDF5) file
+        org: GitHub organization
+        repo: Repository name
+        dest: Base installations directory (defaults to
+              ~/.openwater/installations); the release is installed into
+              <dest>/<version> so that use()/list_installed() can find it.
+              Note this differs from install_version(), where dest is the
+              installation directory itself.
+        force: Force reinstall even if already installed
+
+    Returns:
+        Path to installation directory
+
+    Raises:
+        ValueError: If the file records no version metadata, or no matching
+                    release exists.
+    """
+    release = _find_release_for_model(_require_model_version(model_fn), org, repo)
+    return _install_release_under(release, base=dest, force=force)
+
+
+def use_for_model(model_fn: str, install: bool = False,
+                  dest: Optional[str] = None, org: str = DEFAULT_ORG,
+                  repo: str = DEFAULT_REPO) -> str:
+    """
+    Activate the openwater-core release that a model file was built with.
+
+    Reads the version metadata recorded in the model file, looks for a matching
+    local installation (by full version, then by signature hash — any release
+    with the same signature can run the file) and activates it.
+
+    Parameters:
+        model_fn: Path to an openwater model (HDF5) file
+        install: If True, download and install the matching release when it
+                 isn't already installed locally.
+        dest: Base installations directory (defaults to ~/.openwater/installations)
+        org: GitHub organization (used when install=True)
+        repo: Repository name (used when install=True)
+
+    Returns:
+        The version string that was activated.
+
+    Raises:
+        ValueError: If the file records no version metadata, or nothing
+                    matching is installed and install is False.
+    """
+    mfv = _require_model_version(model_fn)
+
+    matches = _installed_for_version(mfv, dest=dest)
+    if matches:
+        return _activate_path(matches[0]['path'])
+
+    if not install:
+        base = dest or os.path.expanduser(DEST_RELATIVE)
+        raise ValueError(
+            f"{model_fn} was built with OpenWater Core "
+            f"{mfv.version or mfv.signature_hash}, which is not installed in "
+            f"{base}. Pass install=True to download it, or use "
+            f"install_for_model()."
+        )
+
+    release = _find_release_for_model(mfv, org, repo)
+    return _activate_path(_install_release_under(release, base=dest))

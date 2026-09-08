@@ -20,3 +20,20 @@ To upgrade, uninstall the one you've got, then install again
 pip uninstall -y openwater
 pip install https://github.com/flowmatters/openwater/archive/master.zip
 ```
+
+## Openwater Core
+
+This package needs the Openwater Core binaries to run models. Install and activate the latest release with:
+
+```
+ow-releases install
+eval $(ow-releases use-latest)
+```
+
+If you've been given a model file built with a particular version, install and activate that version with:
+
+```
+eval $(ow-releases use-for-model their-model.h5 --install)
+```
+
+See [doc/installation.md](doc/installation.md) for the full story, including version compatibility and using your own build.

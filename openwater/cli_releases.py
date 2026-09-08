@@ -22,6 +22,7 @@ Usage examples::
     #   Linux / macOS (bash/zsh):
     eval $(ow-releases use 1.0.0+abc.def)
     eval $(ow-releases use-latest)
+    eval $(ow-releases use-for-model mymodel.h5 --install)
     eval $(ow-releases use-custom /path/to/build)
 
     #   Windows (PowerShell):
@@ -89,18 +90,28 @@ def _emit_activation(path, shell):
 
 
 def _resolve_installed_path(version, dest=None):
-    """Return the installation directory for *version*, or exit with an error."""
+    """Return the installation directory for *version*, or exit with an error.
+
+    Accepts the same forms as releases.find_installed(): a full version, a
+    partial version, or a bare signature hash.
+    """
     version = version.lstrip('v')
     base = dest or os.path.expanduser(releases.DEST_RELATIVE)
-    install_path = os.path.join(base, version)
-    if not os.path.isdir(install_path):
+    matches = releases.find_installed(version, dest=dest)
+    if not matches:
         print(
-            f"Error: version {version} is not installed at {install_path}.\n"
-            f"Use 'ow-releases install --version {version}' first.",
+            f"Error: no installed release matches '{version}' in {base}.\n"
+            f"Use 'ow-releases install --version {version}' first, "
+            f"or 'ow-releases installed' to see what you have.",
             file=sys.stderr,
         )
         sys.exit(1)
-    return install_path
+
+    chosen = matches[0]
+    resolved = chosen.get('version', os.path.basename(chosen['path']))
+    if resolved != version:
+        print(f"Using OpenWater Core {resolved}", file=sys.stderr)
+    return chosen['path']
 
 
 # ── subcommand handlers ─────────────────────────────────────────────
@@ -181,7 +192,10 @@ def use_latest_version(args):
     """Resolve the latest installed (or just-downloaded) version and emit OW_BIN."""
     if args.install:
         try:
-            path = releases.install_latest(dest=args.dest)
+            release = releases.latest_release()
+            if not release:
+                raise ValueError("no releases found")
+            path = releases._install_release_under(release, base=args.dest)
         except Exception as e:
             print(f"Error: {e}", file=sys.stderr)
             sys.exit(1)
@@ -196,6 +210,58 @@ def use_latest_version(args):
             sys.exit(1)
         entries.sort(key=lambda r: r.get('published', ''), reverse=True)
         path = entries[0]['path']
+
+    _emit_activation(path, args.shell)
+
+
+def use_for_model(args):
+    """Resolve the release a model file was built with and emit OW_BIN."""
+    model_fn = args.model_file
+    if not os.path.isfile(model_fn):
+        print(f"Error: model file not found: {model_fn}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        mfv = releases.model_file_version(model_fn)
+    except Exception as e:
+        print(f"Error: could not read {model_fn}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if not (mfv.version or mfv.signature_hash):
+        print(
+            f"Error: {model_fn} records no openwater-core version metadata\n"
+            f"(written by an older openwater-py?). Use 'ow-releases use' or\n"
+            f"'ow-releases use-latest' to pick a version explicitly.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    wanted = mfv.version or mfv.signature_hash
+    print(f"{model_fn} was built with OpenWater Core {wanted}", file=sys.stderr)
+
+    matches = releases.find_installed_for_model(model_fn, dest=args.dest)
+    if matches:
+        path = matches[0]['path']
+        resolved = matches[0].get('version', os.path.basename(path))
+        if resolved != mfv.version:
+            print(f"Using compatible installation {resolved}", file=sys.stderr)
+        _emit_activation(path, args.shell)
+        return
+
+    if not args.install:
+        base = args.dest or os.path.expanduser(releases.DEST_RELATIVE)
+        print(
+            f"Error: {wanted} is not installed in {base}.\n"
+            f"Pass --install to download it automatically.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    try:
+        path = releases.install_for_model(model_fn, dest=args.dest)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
     _emit_activation(path, args.shell)
 
@@ -219,7 +285,7 @@ _SHELL_HELP = (
 
 _ACTIVATION_EPILOG = """\
 Setting OW_BIN and PATH in your shell:
-  The use, use-latest, and use-custom commands print shell statements
+  The use, use-latest, use-for-model and use-custom commands print statements
   that set OW_BIN and prepend the installation directory to PATH. This
   makes both the Python library (via OW_BIN) and the command-line tools
   (ow-sim, ow-inspect, etc.) available. Wrap the command so your shell
@@ -228,6 +294,7 @@ Setting OW_BIN and PATH in your shell:
   Linux / macOS (bash, zsh):
     eval $(ow-releases use 1.0.0+abc.def)
     eval $(ow-releases use-latest)
+    eval $(ow-releases use-for-model mymodel.h5)
     eval $(ow-releases use-custom /path/to/build)
 
   Windows PowerShell:
@@ -260,6 +327,7 @@ examples:
   eval $(%(prog)s use 1.0.0+abc.def)         Activate an installed version
   eval $(%(prog)s use-latest)                Activate latest installed version
   eval $(%(prog)s use-latest --install)      Install & activate latest
+  eval $(%(prog)s use-for-model m.h5)        Activate the version m.h5 was built with
   eval $(%(prog)s use-custom /path/to/bin)   Activate a custom build directory
         """,
     )
@@ -314,6 +382,23 @@ examples:
     use_latest_parser.add_argument('--shell', choices=SHELL_FORMATS, default=default_shell,
                                    help=_SHELL_HELP)
     use_latest_parser.set_defaults(func=use_latest_version)
+
+    # use-for-model
+    use_for_model_parser = subparsers.add_parser(
+        'use-for-model',
+        help='Print shell commands to set OW_BIN and PATH for the version a '
+             'model file was built with',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_ACTIVATION_EPILOG,
+    )
+    use_for_model_parser.add_argument('model_file',
+                                      help='Path to an openwater model (HDF5) file')
+    use_for_model_parser.add_argument('--dest', help='Base installations directory')
+    use_for_model_parser.add_argument('--install', action='store_true',
+                                      help='Download and install the matching release if needed')
+    use_for_model_parser.add_argument('--shell', choices=SHELL_FORMATS, default=default_shell,
+                                      help=_SHELL_HELP)
+    use_for_model_parser.set_defaults(func=use_for_model)
 
     # use-custom
     use_custom_parser = subparsers.add_parser(

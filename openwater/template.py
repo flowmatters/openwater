@@ -1571,20 +1571,21 @@ def _run(time_period,model_fn=None,results_fn=None,**kwargs):
     # Check version compatibility if not explicitly skipped
     if not kwargs.get('skip_version_check', False):
         try:
-            import h5py
-            with h5py.File(model_fn, 'r') as f:
-                file_sig = f.attrs.get('signature_hash', None)
-                file_version = f.attrs.get('openwater_version', 'unknown')
+            from . import releases
+            file_version, file_sig = releases.model_file_version(model_fn)[:2]
 
-            if file_sig is not None:
-                current_sig = lib.get_core_signature_hash()
-                if file_sig.decode('utf-8') if isinstance(file_sig, bytes) else file_sig != current_sig:
+            current_sig = lib.get_core_signature_hash()
+            if file_sig is not None and current_sig not in (None, 'unknown'):
+                if file_sig != current_sig:
                     current_version = lib.get_core_version()
                     logger.warning(
                         f"Model file signature mismatch!\n"
-                        f"  File version: {file_version}\n"
+                        f"  File version: {file_version or 'unknown'}\n"
                         f"  Current version: {current_version}\n"
-                        f"  This may cause errors. Rebuild the model file with current version or use skip_version_check=True to override."
+                        f"  This may cause errors. Activate the matching release with "
+                        f"openwater.releases.use_for_model('{model_fn}', install=True), "
+                        f"rebuild the model file with the current version, "
+                        f"or use skip_version_check=True to override."
                     )
         except Exception as e:
             logger.debug(f"Could not check version compatibility: {e}")
