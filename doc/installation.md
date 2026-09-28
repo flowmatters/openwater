@@ -17,6 +17,7 @@ Contents:
 * [Running a model file from someone else](#running-a-model-file-from-someone-else)
 * [Why versions matter](#why-versions-matter)
 * [Using your own build](#using-your-own-build)
+* [Running on SLURM / HPC clusters](#running-on-slurm--hpc-clusters)
 * [Troubleshooting](#troubleshooting)
 * [Command and function reference](#command-and-function-reference)
 
@@ -195,6 +196,34 @@ openwater.discovery.discover()
 ```
 
 Either way you can also just set `OW_BIN` yourself before starting Python; it defaults to `~/bin` when unset. Note that a local build's version, and therefore its signature, comes from its own git state, so `ow-releases` won't recognise it as an installed release and `use_for_model` won't find it.
+
+## Running on SLURM / HPC clusters
+
+`use_latest()` works by *discovering* what's installed under `~/.openwater/installations` (or `--dest`) at the moment it's called. On a cluster that's usually the wrong tool: home directories are commonly shared across nodes, installations can change between when a job is queued and when it runs, and there's no guarantee every node sees the same thing at the same time. For a batch of jobs you want to be able to say "run with *this* build, full stop" — pin it once, hard-quote the path, and never re-resolve it.
+
+The mechanism for that already exists: `OW_BIN` (an environment variable, read by `openwater.discovery` at import time) always takes priority over discovery. Set it explicitly in the job script and skip `use_latest()`/`use()` altogether:
+
+```bash
+#!/bin/bash
+#SBATCH --array=0-99
+#SBATCH --ntasks=1
+
+export OW_BIN=/shared/openwater/installations/1.0.0+5a422e6.2b6d69b9
+
+python run_one_case.py --case-id $SLURM_ARRAY_TASK_ID
+```
+
+```python
+# run_one_case.py — no releases.use*() call needed, OW_BIN is already set
+import openwater.discovery
+openwater.discovery.discover()
+```
+
+This is exactly the "hard-quote the path to the executable" option: `OW_BIN` (or, from Python, `openwater.discovery.set_exe_path(path)` before `discover()`) bypasses version lookup entirely and points straight at a directory of binaries, the same way [Using your own build](#using-your-own-build) does for a local checkout. Every array task/core gets the same explicit path, independent of whatever else is installed on that node at the time.
+
+If you'd rather fix the version in code than in the Slurm submission script — so the whole batch of runs is reproducible from one place, without relying on every job script setting `OW_BIN` the same way — pin an exact version with `releases.use('1.0.0+5a422e6.2b6d69b9')` instead of `use_latest()`. Avoid `use_latest()` for batch/HPC work generally: it's a moving target, and re-running the same array job weeks later could silently pick up a different build if anyone has installed one in the meantime.
+
+**A note on concurrency:** the active executable path (`OW_BIN`) is process-global state in Python — it isn't tied to a model run or thread. That's not a problem for the common shape, one job/node running one Python process that calls `ow-sim` once: `ow-sim` itself uses Go's own concurrency to spread the model run across the node's cores, so there's only ever one `OW_BIN`, set once, for the lifetime of that process. It would only become a problem if a single Python process instead fanned *itself* out across cores with Python-level threads or multiprocessing and each thread/worker called `set_exe_path()`/`use()`/`use_latest()` independently — that mutates state shared by all of them, so one call can yank `OW_BIN` out from under another mid-run. That's a different, less common pattern than letting `ow-sim` parallelise on its own; if you do write it that way, set `OW_BIN` once before spawning the workers and don't change it afterwards.
 
 ## Troubleshooting
 
