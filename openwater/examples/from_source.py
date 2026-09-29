@@ -35,6 +35,9 @@ logger = logging.getLogger(__name__)
 
 EXPECTED_LINK_PREFIX='link for catchment '
 LVA_PRECISION = 4
+# How far (m) the reported full supply level may sit from the level of a matching
+# LVA row before it's worth reporting the disagreement.
+FSL_MATCH_TOLERANCE = 1e-3
 
 MODEL_LOOKUP = {}
 STANDARD_SOURCE_COLUMN_TRANSLATIONS = {
@@ -163,11 +166,34 @@ def merge_storage_tables(directory,fsvs,fsls):
             lva.loc[0,'area'] = 0
 
         lva = lva.set_index('volume')
-        if fsvs[node] not in lva.index:
-            lva.loc[fsvs[node],'level'] = round(fsls[node],LVA_PRECISION)
+        fsv = fsvs[node]
+        fsl = fsls[node]
+        if fsv in lva.index:
+            level_at_fsv = lva.loc[fsv,'level']
+            if abs(level_at_fsv - fsl) > FSL_MATCH_TOLERANCE:
+                logger.warning('Full supply level (%f m) disagrees with the level of the matching LVA row (%f m) in storage: %s. Using the level from the LVA table.',
+                               fsl,level_at_fsv,node)
+        else:
+            logger.warning('Full supply volume (%f m^3) has no matching row in storage LVA: %s. Inserting a row at the full supply level (%f m) and interpolating area.',
+                           fsv,node,fsl)
+            if fsv > lva.index.max():
+                logger.warning('Full supply volume (%f m^3) is above the top of the LVA table (%f m^3) in storage: %s. Area at full supply is taken from the top row of the table rather than interpolated, every level above the top of the table collapses onto the one volume, and the release rates at those levels are unreachable.',
+                               fsv,lva.index.max(),node)
+            lva.loc[fsv,'level'] = round(fsl,LVA_PRECISION)
         lva = lva.sort_index()
-        lva = lva.interpolate()
+        # method='index' so that area is interpolated against volume. The pandas
+        # default (method='linear') ignores the index and treats the rows as
+        # equally spaced, which puts the area of an inserted full supply row
+        # midway between its neighbours regardless of where its volume falls.
+        # Area is a piecewise linear function of volume in the Storage model, so
+        # interpolating on volume is what matches the model (and Source).
+        lva = lva.interpolate(method='index')
         lva = lva.reset_index().set_index('level')
+        if lva.index.has_duplicates:
+            # Two volumes at the same level. Nothing downstream can work with
+            # that (the reindex below raises), so fail with the storage named.
+            raise Exception('Duplicate levels (%s) in storage LVA table: %s. Full supply level %f may have rounded onto an existing level at a different volume.'%(
+                sorted(set(lva.index[lva.index.duplicated()])),node,fsl))
 
         release_curves = []
         levels = set(lva.index)
@@ -178,6 +204,12 @@ def merge_storage_tables(directory,fsvs,fsls):
             if release_curve.level.iloc[0] > lva.index.min():
                 logger.warning('No zero release row in storage release curve: %s outlet %s'%(node,outlet))
                 release_curve = pd.concat([pd.DataFrame([{'level':lva.index.min(),'minimum':0,'maximum':0}]),release_curve], ignore_index=True)
+            elif release_curve.level.iloc[0] < lva.index.min():
+                # There is nothing to interpolate volume and area from below the
+                # bottom of the LVA table, so those rows would reach the model
+                # file as NaN.
+                raise Exception('Release curve starts below the bottom of the LVA table (%f m vs %f m): %s outlet %s. Volume and area cannot be determined for levels below the LVA table.'%(
+                    release_curve.level.iloc[0],lva.index.min(),node,outlet))
             release_curve = release_curve.set_index('level')
             release_curves.append(release_curve)
         levels = sorted(levels)
