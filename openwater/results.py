@@ -310,6 +310,13 @@ class OpenwaterResults(object):
       var_idx = output_names.index(variable)
       dataset = out_grp['outputs']
 
+    expected = len(input_names) if is_input else len(output_names)
+    if dataset.shape[1] != expected:
+      logger.warning('%s %s in results file has %d variables, but the model description has %d (%s). '
+                     'The file was probably written by a different openwater-core build, so %s may be read from the wrong position.',
+                     model, 'inputs' if is_input else 'outputs', dataset.shape[1], expected,
+                     ', '.join(input_names if is_input else output_names), variable)
+
     data = dataset[:,var_idx,:]
     assert len(data.shape)==2
     return data
@@ -493,9 +500,9 @@ class OpenwaterResults(object):
 
         run_index = run_map[run_map_coords]
         r[tags] = data[run_index,:]
-    r = pd.DataFrame(r,index=self.time_period)
-    r.columns.set_names(dim_names,inplace=True)
-    return r
+    columns = pd.MultiIndex.from_tuples(list(r.keys()),names=dim_names) if r else \
+              pd.MultiIndex.from_arrays([[]]*len(dim_names),names=dim_names)
+    return pd.DataFrame({k:r[k] for k in r},index=self.time_period,columns=columns)
 
   def table(self,model,variable:str,rows:str,columns:str,temporal_aggregator:str='mean',aggregator:str=None,time_period=None,months=None,**kwargs) -> pd.DataFrame:
     '''

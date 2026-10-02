@@ -269,3 +269,48 @@ class TestSplitResults:
             temporal_grouping='year', temporal_aggregator='sum', hru='h1')
         assert tbl.loc[2020, 'c1'] == pytest.approx(366.0)
         assert tbl.loc[2021, 'c1'] == pytest.approx(365.0)
+
+
+class TestAllTimeSeries:
+    def test_columns_are_labelled_with_model_tags(self, results):
+        ts = results.all_time_series('DummyModel', 'runoff')
+        assert list(ts.columns.names) == ['catchment', 'hru']
+        assert ts[('c2', 'h1')].iloc[0] == pytest.approx(3.0)
+
+    def test_no_matching_nodes_gives_empty_frame(self, tmp_path):
+        model_path = str(tmp_path / 'model.h5')
+        results_path = str(tmp_path / 'outputs.h5')
+        write_model_h5(model_path, DATES)
+        with h5py.File(model_path, 'a') as f:
+            # No node for catchment c2 / hru h2
+            f['/MODELS/DummyModel/map'][1, 1] = -1
+        write_results_h5(results_path, len(DATES))
+        r = OpenwaterResults(model_path, results_path)
+        try:
+            ts = r.all_time_series('DummyModel', 'runoff', catchment='c2', hru='h2')
+            assert ts.shape == (len(DATES), 0)
+            assert list(ts.columns.names) == ['catchment', 'hru']
+        finally:
+            r.close()
+
+
+class TestVariableCountCheck:
+    def test_warns_when_results_have_more_variables_than_the_model_description(self, tmp_path, caplog):
+        model_path = str(tmp_path / 'model.h5')
+        results_path = str(tmp_path / 'outputs.h5')
+        write_model_h5(model_path, DATES)
+        with h5py.File(results_path, 'w') as f:
+            # Written by a build where DummyModel had two outputs
+            f.create_dataset('/MODELS/DummyModel/outputs', data=np.ones((4, 2, len(DATES))))
+        r = OpenwaterResults(model_path, results_path)
+        try:
+            with caplog.at_level('WARNING', logger='openwater.results'):
+                r.time_series('DummyModel', 'runoff', 'catchment', hru='h1')
+            assert 'has 2 variables, but the model description has 1' in caplog.text
+        finally:
+            r.close()
+
+    def test_no_warning_when_variable_counts_match(self, results, caplog):
+        with caplog.at_level('WARNING', logger='openwater.results'):
+            results.time_series('DummyModel', 'runoff', 'catchment', hru='h1')
+        assert 'model description' not in caplog.text
