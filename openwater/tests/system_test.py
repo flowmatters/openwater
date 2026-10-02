@@ -1,6 +1,7 @@
 import pytest
 import json
 import os
+import sys
 import io
 from openwater import OWTemplate, OWLink, debugging
 import openwater.lib as owl
@@ -68,7 +69,7 @@ class ScaledTimeSeriesParameteriser(object):
         self.model = model
         self.scales = kwargs
 
-    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df):
+    def parameterise(self,model_desc,grp,instances,dims,nodes,nodes_df,resolver=None):
         if not config._models_match(self.model,model_desc):
             return
 
@@ -184,4 +185,4 @@ def check_streamflow(c, streamflow, base_rain):
     assert_array_equal(streamflow[c],expected,'Streamflow in catchment %d'%c)
 
 if __name__=='__main__':
-    pytest.main(['--pyargs',  'openwater.tests.system_test'])
+    sys.exit(pytest.main(['--pyargs',  'openwater.tests.system_test']))
