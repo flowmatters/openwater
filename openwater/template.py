@@ -1581,10 +1581,9 @@ def _run(time_period,model_fn=None,results_fn=None,**kwargs):
             from . import releases
             file_version, file_sig = releases.model_file_version(model_fn)[:2]
 
-            current_sig = lib.get_core_signature_hash()
+            current_version, current_sig = stamps.current_core()
             if file_sig is not None and current_sig not in (None, 'unknown'):
                 if file_sig != current_sig:
-                    current_version = lib.get_core_version()
                     logger.warning(
                         f"Model file signature mismatch!\n"
                         f"  File version: {file_version or 'unknown'}\n"

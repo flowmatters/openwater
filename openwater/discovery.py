@@ -37,6 +37,45 @@ def _exe_path(prog,family='ow'):
     result += '.exe'
   return result
 
+_core_version_cache = {}
+
+def core_version():
+  '''(version, signature hash) of the active openwater-core release.
+
+  Asked of the release's own ow-inspect, which is the program discover() takes
+  the model descriptions from, so the answer always describes the descriptions
+  in use. The shared library can't be relied on for this: it is loaded once
+  per process, and keeps reporting the first release after releases.use()
+  has switched to another.
+
+  Returns ('unknown', 'unknown') when ow-inspect can't be run or doesn't say.
+  '''
+  import os
+  import subprocess
+  unknown = ('unknown','unknown')
+  exe = _exe_path('inspect')
+  try:
+    key = (exe,os.path.getmtime(exe))
+  except OSError:
+    return unknown
+
+  if key not in _core_version_cache:
+    result = unknown
+    try:
+      output = subprocess.check_output([exe,'-version'],stderr=subprocess.DEVNULL,timeout=60).decode('utf-8')
+      version = signature = 'unknown'
+      for line in output.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0] == 'ow-inspect':
+          version = parts[1]
+        elif len(parts) == 2 and parts[0] == 'Signature:':
+          signature = parts[1]
+      result = (version,signature)
+    except Exception:
+      pass
+    _core_version_cache[key] = result
+  return _core_version_cache[key]
+
 def _lib_path():
   import sys
   import os

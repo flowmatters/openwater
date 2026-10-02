@@ -132,12 +132,65 @@ def test_split_ow_sim():
     res = OpenwaterResults(MODEL_FN,RESULTS_FN)
     check_result(res, base_rain)
     check_stamps(res)
+    res.close()
+
+    check_separate_states_file()
+    check_failed_run_leaves_no_results()
 
 def test_python_lib_model():
     base_rains = np.arange(10,dtype='float64')
     expected = base_rains
     result = owl.RunoffCoefficient(rainfall=base_rains, coeff=1.0)[0][0]
     assert_array_equal(result, expected, 'RunoffCoefficient outputs')
+
+def _run_ow_sim(*args):
+    cmd_line = ' '.join([os.path.join(discovery._exe_path('sim'))] + list(args))
+    logger.info(f'Running: {cmd_line}')
+    return os.system(cmd_line)
+
+def check_separate_states_file():
+    '''Final states written to their own file: both files are stamped, and neither is the model file.'''
+    from openwater import stamps
+    states_fn = 'test_model_states.h5'
+    results_fn = 'test_model_outputs_no_states.h5'
+    clean(states_fn)
+    clean(results_fn)
+
+    with h5.File(MODEL_FN,'r') as f:
+        model_stamp_before = stamps.read_stamp(f)
+
+    assert _run_ow_sim('-overwrite','-final-states',states_fn,MODEL_FN,results_fn) == 0
+
+    signature = owl.get_core_signature_hash()
+    with h5.File(results_fn,'r') as f:
+        assert stamps.read_stamp(f)['signature_hash'] == signature
+        assert 'states' not in f['MODELS']['Sum']
+    with h5.File(states_fn,'r') as f:
+        stamp = stamps.read_stamp(f)
+        assert stamp['signature_hash'] == signature
+        assert stamp['created_by'] == 'ow-sim'
+        assert stamps.variable_names(f['MODELS']['Sum']['states']) == list(node_types.Sum.description['States'])
+    with h5.File(MODEL_FN,'r') as f:
+        assert stamps.read_stamp(f) == model_stamp_before, 'a run must not restamp its model file'
+
+    clean(states_fn)
+    clean(results_fn)
+
+def check_failed_run_leaves_no_results():
+    '''A run that fails before writing anything must not leave a results file behind.'''
+    import shutil
+    broken_fn = 'test_model_broken.h5'
+    results_fn = 'test_model_broken_outputs.h5'
+    clean(broken_fn)
+    clean(results_fn)
+    shutil.copyfile(MODEL_FN,broken_fn)
+    with h5.File(broken_fn,'a') as f:
+        del f['MODELS']['RunoffCoefficient']['parameters']
+
+    assert _run_ow_sim(broken_fn,results_fn) != 0
+    assert not os.path.exists(results_fn)
+
+    clean(broken_fn)
 
 def check_stamps(res):
     '''Model and results files say which build wrote them and name their variables.'''

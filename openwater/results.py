@@ -374,9 +374,7 @@ class OpenwaterResults(object):
       return
 
     try:
-      from . import lib
-      current_signature = lib.get_core_signature_hash()
-      current_version = lib.get_core_version()
+      current_version, current_signature = stamps.current_core()
     except Exception as e:
       logger.debug('Could not check results version: %s', e)
       return
@@ -439,25 +437,25 @@ class OpenwaterResults(object):
     '''
     datasets = self._variable_datasets(model)
     recorded = {kind: stamps.variable_names(ds,kind) for kind,ds in datasets.items()}
+    described = self._described_variables(model)
 
+    # One pass, inputs before outputs, so that a name which is both an input
+    # and an output resolves the same way whether or not the file names its
+    # variables. For each kind, the file's own names are used when it has
+    # them and the loaded description otherwise.
     for kind in ['inputs','outputs']:
       names = recorded.get(kind)
-      if names is not None and variable in names:
-        return datasets[kind], names.index(variable)
-
-    described = self._described_variables(model)
-    for kind in ['inputs','outputs']:
-      if variable not in described.get(kind,[]):
+      by_name = names is not None
+      if not by_name:
+        names = described.get(kind,[])
+      if variable not in names:
         continue
+
       if kind not in datasets:
         raise Exception('No %s recorded for %s'%(kind,model))
-      if recorded.get(kind) is not None:
-        # The file says what it holds, and this variable isn't in it.
-        continue
-
-      names = described[kind]
       dataset = datasets[kind]
-      if dataset.shape[1] != len(names):
+
+      if not by_name and dataset.shape[1] != len(names):
         message = ('%s %s in %s has %d variables, but the model description has %d (%s). '
                    'The file was probably written by a different openwater-core build, so %s '
                    'would be read from the wrong position.'%(
@@ -466,8 +464,9 @@ class OpenwaterResults(object):
         if not self.allow_variable_mismatch:
           raise VariableMismatchError(
             message + ' Activate the release that wrote the file '
-            '(openwater.releases.use_for_model), or open the results with '
-            'allow_variable_mismatch=True to read by position anyway.')
+            '(openwater.releases.use_for_model), or read by position anyway by opening '
+            'the results with allow_variable_mismatch=True (or setting that attribute '
+            'on the results object).')
         logger.warning(message)
       return dataset, names.index(variable)
 
@@ -802,12 +801,19 @@ class OpenwaterResults(object):
     return sorted(name for name in group if hasattr(group[name], 'keys'))
 
   def _check_report_signature(self):
-    '''Reports are only meaningful against the model file that produced them.
+    '''Refuse to read reports against a model file built for different model interfaces.
 
-    Run indices and timesteps are bare integers: ``clip`` renumbers run indices
-    and ``ModelFile.retime`` rewrites ``META/timeperiod``, either of which would
-    silently re-locate or re-date every report. A wrong catchment name is worse
-    than no catchment name, so a mismatch raises.
+    Run indices and timesteps are bare integers, translated to places and
+    dates through the model file. ow-sim records the signature of the model
+    file it ran; if this model file's signature differs, it is certainly not
+    that file, and a wrong catchment name is worse than none, so this raises.
+
+    A matching signature is NOT proof that it is the same model file. The
+    signature identifies a set of model interfaces, not a model: a file made
+    from the original by ``clip`` (which renumbers run indices) or changed by
+    ``ModelFile.retime`` (which rewrites ``META/timeperiod``) keeps the same
+    signature, and reports read against it will be mapped to the wrong places
+    or dates without complaint. Read reports with the model file the run used.
     '''
     stamped = stamps.read_stamp(self.results).get(stamps.MODEL_SIGNATURE_ATTR)
     if stamped is None:
@@ -1034,14 +1040,24 @@ class OpenwaterResults(object):
     return combined[ordered].reset_index(drop=True)
 
 class OpenwaterSplitResults(object):
-  def  __init__(self,splits,time_period=None):
+  def  __init__(self,splits,time_period=None,allow_variable_mismatch=False):
     assert len(splits)
     if isinstance(splits[0],tuple):
-      self._results = [OpenwaterResults(model,res) for (model,res) in splits]
+      self._results = [OpenwaterResults(model,res,allow_variable_mismatch=allow_variable_mismatch) for (model,res) in splits]
     else:
       self._results = splits
     first_tp = self._results[0].time_period
     self.time_period = time_period if time_period is not None else first_tp
+
+  @property
+  def allow_variable_mismatch(self):
+    '''Whether unnamed variables are read by position despite a count mismatch. See OpenwaterResults.'''
+    return all(split.allow_variable_mismatch for split in self._results)
+
+  @allow_variable_mismatch.setter
+  def allow_variable_mismatch(self,value):
+    for split in self._results:
+      split.allow_variable_mismatch = value
 
   def close(self):
     for split in self._results:
@@ -1166,7 +1182,7 @@ class OpenwaterSplitResults(object):
     grouping = [c for c in combined.columns if c != 'occurrences']
     return combined.groupby(grouping,dropna=False,as_index=False)['occurrences'].sum()
 
-def open_split_results(model_fn,results_pattern,input_pattern=None,time_period=None):
+def open_split_results(model_fn,results_pattern,input_pattern=None,time_period=None,allow_variable_mismatch=False):
   results_filenames = list(sorted(glob(results_pattern)))
   if input_pattern is not None:
     inputs_filenames = list(sorted(glob(input_pattern)))
@@ -1174,7 +1190,8 @@ def open_split_results(model_fn,results_pattern,input_pattern=None,time_period=N
   else:
     inputs_filenames = None
 
-  individual_result_objects = [OpenwaterResults(model_fn,res_file,inputs=None if inputs_filenames is None else inputs_filenames[ix])\
+  individual_result_objects = [OpenwaterResults(model_fn,res_file,inputs=None if inputs_filenames is None else inputs_filenames[ix],
+                                                allow_variable_mismatch=allow_variable_mismatch)\
                                for ix,res_file in enumerate(results_filenames)]
   return OpenwaterSplitResults(individual_result_objects,time_period=time_period)
 

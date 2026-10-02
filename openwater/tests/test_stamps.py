@@ -3,7 +3,6 @@ import numpy as np
 import h5py
 import pytest
 
-import openwater.lib as lib
 import openwater.results as results_mod
 from openwater import releases, stamps
 from openwater.results import OpenwaterResults
@@ -17,8 +16,7 @@ LIBRARY_SIGNATURE = '6d3bb266'
 @pytest.fixture(autouse=True)
 def loaded_library(monkeypatch):
     """Pretend a particular openwater-core build is loaded."""
-    monkeypatch.setattr(lib, 'get_core_version', lambda: LIBRARY_VERSION)
-    monkeypatch.setattr(lib, 'get_core_signature_hash', lambda: LIBRARY_SIGNATURE)
+    monkeypatch.setattr(stamps, 'current_core', lambda: (LIBRARY_VERSION, LIBRARY_SIGNATURE))
     results_mod._warned_signatures.clear()
 
 
@@ -75,7 +73,7 @@ class TestResultsStampCheck:
         assert caplog.text == ''
 
     def test_no_library_means_no_check(self, tmp_path, caplog, monkeypatch):
-        monkeypatch.setattr(lib, 'get_core_signature_hash', lambda: 'unknown')
+        monkeypatch.setattr(stamps, 'current_core', lambda: ('unknown', 'unknown'))
         with caplog.at_level('WARNING', logger='openwater.results'):
             r = open_results(tmp_path, stamp=('1.0.1+2939cdc.74cdc5ba', '74cdc5ba'))
             r.close()
@@ -266,3 +264,156 @@ class TestDerivedFilesKeepTheirMetadata:
         with h5py.File(tmp_path / 'src.h5', 'w') as src, h5py.File(tmp_path / 'dest.h5', 'w') as dest:
             stamps.copy_model_metadata(src, dest)
             assert stamps.read_stamp(dest) == {}
+
+
+class TestWhichBuildIsInUse:
+    """The build a file is compared with is the one whose descriptions are loaded."""
+
+    def test_follows_the_active_release_not_the_first_library_loaded(self, monkeypatch, tmp_path):
+        from openwater import discovery, lib
+        monkeypatch.undo()  # this test is about the real current_core
+        results_mod._warned_signatures.clear()
+
+        # The library was loaded from the first release and still says so...
+        monkeypatch.setattr(lib, 'get_core_version', lambda: '1.0.1+2939cdc.74cdc5ba')
+        monkeypatch.setattr(lib, 'get_core_signature_hash', lambda: '74cdc5ba')
+        # ...but the release in use now, whose ow-inspect supplied the model
+        # descriptions, is another one.
+        monkeypatch.setattr(discovery, 'core_version', lambda: (LIBRARY_VERSION, LIBRARY_SIGNATURE))
+
+        assert stamps.current_core() == (LIBRARY_VERSION, LIBRARY_SIGNATURE)
+
+    def test_falls_back_to_the_library_without_a_usable_ow_inspect(self, monkeypatch):
+        from openwater import discovery, lib
+        monkeypatch.undo()
+        monkeypatch.setattr(discovery, 'core_version', lambda: ('unknown', 'unknown'))
+        monkeypatch.setattr(lib, 'get_core_version', lambda: LIBRARY_VERSION)
+        monkeypatch.setattr(lib, 'get_core_signature_hash', lambda: LIBRARY_SIGNATURE)
+
+        assert stamps.current_core() == (LIBRARY_VERSION, LIBRARY_SIGNATURE)
+
+    def test_core_version_is_read_from_ow_inspect(self, monkeypatch, tmp_path):
+        import os
+        import stat
+        from openwater import discovery
+
+        exe = tmp_path / ('ow-inspect.exe' if os.name == 'nt' else 'ow-inspect')
+        if os.name == 'nt':
+            pytest.skip('needs a shell script standing in for ow-inspect')
+        exe.write_text('#!/bin/sh\necho "ow-inspect 1.0.3+abc1234.6d3bb266"\n'
+                       'echo "Signature: 6d3bb266"\necho "Build: unknown (abc1234)"\n')
+        exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+        monkeypatch.setattr(discovery, 'OW_BIN', str(tmp_path))
+
+        assert discovery.core_version() == ('1.0.3+abc1234.6d3bb266', '6d3bb266')
+
+    def test_core_version_is_unknown_without_ow_inspect(self, monkeypatch, tmp_path):
+        from openwater import discovery
+        monkeypatch.setattr(discovery, 'OW_BIN', str(tmp_path))
+        assert discovery.core_version() == ('unknown', 'unknown')
+
+
+class TestStampDecoding:
+    """Only a single string is a stamp; anything else is ignored, not stringified."""
+
+    def _stamp(self, tmp_path, value):
+        with h5py.File(tmp_path / 'f.h5', 'w') as f:
+            f.attrs['signature_hash'] = value
+            return stamps.read_stamp(f)
+
+    def test_str_and_bytes(self, tmp_path):
+        assert self._stamp(tmp_path, '6d3bb266') == {'signature_hash': '6d3bb266'}
+        assert self._stamp(tmp_path, np.bytes_('6d3bb266')) == {'signature_hash': '6d3bb266'}
+
+    def test_a_one_element_array_is_its_element(self, tmp_path):
+        assert self._stamp(tmp_path, np.array([b'6d3bb266'])) == {'signature_hash': '6d3bb266'}
+
+    def test_padding_is_dropped(self, tmp_path):
+        assert self._stamp(tmp_path, np.bytes_('6d3bb266  ')) == {'signature_hash': '6d3bb266'}
+
+    def test_things_that_are_not_a_string_are_not_a_stamp(self, tmp_path):
+        assert self._stamp(tmp_path, 42) == {}
+        assert self._stamp(tmp_path, np.array([b'a', b'b'])) == {}
+        assert self._stamp(tmp_path, h5py.Empty('S8')) == {}
+
+
+class TestMixedNamedAndUnnamed:
+    """An old model file (unnamed inputs) run with a new ow-sim (named outputs)."""
+
+    def _open(self, tmp_path, monkeypatch, name_outputs, name_inputs):
+        # A model where one name is both an input and an output.
+        class Passthrough:
+            name = 'DummyModel'
+            description = {'Inputs': [{'Name': 'flow', 'Units': ''}],
+                           'Outputs': [{'Name': 'flow', 'Units': ''}]}
+        monkeypatch.setattr(results_mod.node_types, 'DummyModel', Passthrough, raising=False)
+
+        model_path = str(tmp_path / 'model.h5')
+        results_path = str(tmp_path / 'outputs.h5')
+        write_model_h5(model_path, DATES)
+        with h5py.File(model_path, 'a') as f:
+            ds = f.create_dataset('/MODELS/DummyModel/inputs', data=np.full((4, 1, len(DATES)), 20.0))
+            if name_inputs:
+                ds.attrs['VARIABLES'] = np.array([b'flow'])
+        with h5py.File(results_path, 'w') as f:
+            ds = f.create_dataset('/MODELS/DummyModel/outputs', data=np.full((4, 1, len(DATES)), 100.0))
+            if name_outputs:
+                ds.attrs['VARIABLES'] = np.array([b'flow'])
+        return OpenwaterResults(model_path, results_path)
+
+    @pytest.mark.parametrize('name_outputs,name_inputs', [
+        (False, False), (True, True), (True, False), (False, True)])
+    def test_an_ambiguous_name_resolves_the_same_way_however_the_files_are_named(
+            self, tmp_path, monkeypatch, name_outputs, name_inputs):
+        r = self._open(tmp_path, monkeypatch, name_outputs, name_inputs)
+        try:
+            ts = r.time_series('DummyModel', 'flow', 'catchment', hru='h1')
+            assert ts['c1'].iloc[0] == pytest.approx(20.0), 'the input, as it always was'
+        finally:
+            r.close()
+
+
+class TestModelTheLibraryDoesNotKnow:
+    def test_named_results_are_readable_without_a_description(self, tmp_path, monkeypatch):
+        monkeypatch.delattr(results_mod.node_types, 'DummyModel', raising=False)
+        model_path = str(tmp_path / 'model.h5')
+        results_path = str(tmp_path / 'outputs.h5')
+        write_model_h5(model_path, DATES)
+        with h5py.File(results_path, 'w') as f:
+            ds = f.create_dataset('/MODELS/DummyModel/outputs', data=np.full((4, 1, len(DATES)), 3.0))
+            ds.attrs['VARIABLES'] = np.array([b'runoff'])
+        r = OpenwaterResults(model_path, results_path)
+        try:
+            assert r.variables_for('DummyModel') == ['runoff']
+            ts = r.time_series('DummyModel', 'runoff', 'catchment', hru='h1')
+            assert ts['c1'].iloc[0] == pytest.approx(3.0)
+        finally:
+            r.close()
+
+
+class TestOverrideIsReachable:
+    def test_split_results_pass_the_override_through(self, tmp_path):
+        from openwater.results import OpenwaterSplitResults
+        model_path = str(tmp_path / 'model.h5')
+        results_path = str(tmp_path / 'outputs.h5')
+        write_model_h5(model_path, DATES)
+        with h5py.File(results_path, 'w') as f:
+            f.create_dataset('/MODELS/DummyModel/outputs', data=np.ones((4, 2, len(DATES))))
+
+        strict = OpenwaterSplitResults([(model_path, results_path)])
+        try:
+            assert not strict.allow_variable_mismatch
+            with pytest.raises(results_mod.VariableMismatchError):
+                strict.time_series('DummyModel', 'runoff', 'catchment', hru='h1')
+            # ...and it can be relaxed after the fact, on a results object
+            # something else constructed.
+            strict.allow_variable_mismatch = True
+            assert strict.time_series('DummyModel', 'runoff', 'catchment', hru='h1').shape[0] == len(DATES)
+        finally:
+            strict.close()
+
+        relaxed = OpenwaterSplitResults([(model_path, results_path)], allow_variable_mismatch=True)
+        try:
+            assert relaxed.allow_variable_mismatch
+        finally:
+            relaxed.close()

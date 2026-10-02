@@ -48,11 +48,41 @@ VARIABLE_AXIS = {
 
 
 def _decode(value):
-  if value is None:
-    return None
   if isinstance(value, bytes):
     return value.decode('utf-8')
-  return str(value)
+  return value
+
+
+def _stamp_value(value):
+  '''A stamp attribute as a str, or None if it isn't a single string.
+
+  Anything else -- a number, an empty attribute, a list -- is not a stamp, and
+  is ignored rather than stringified into something that looks like one.
+  openwater-core reads stamps by the same rule.
+  '''
+  if isinstance(value, np.ndarray):
+    if value.size != 1:
+      return None
+    value = value.reshape(-1)[0]
+  value = _decode(value)
+  if not isinstance(value, str):
+    return None
+  return value.rstrip(' \x00')
+
+
+def current_core():
+  '''(version, signature hash) of the openwater-core build in use.
+
+  This is the build whose model descriptions are loaded, and so the one a
+  file's layout has to be compared with. Either value is 'unknown' when it
+  can't be established.
+  '''
+  from . import discovery, lib
+  version, signature = discovery.core_version()
+  if signature == 'unknown':
+    # No usable ow-inspect; the library, if there is one, is the next best.
+    version, signature = lib.get_core_version(), lib.get_core_signature_hash()
+  return version, signature
 
 
 def read_stamp(h5f):
@@ -63,7 +93,9 @@ def read_stamp(h5f):
   '''
   result = {}
   for name in ALL_STAMP_ATTRS:
-    value = _decode(h5f.attrs.get(name))
+    if name not in h5f.attrs:
+      continue
+    value = _stamp_value(h5f.attrs[name])
     if value is not None:
       result[name] = value
   return result
@@ -73,13 +105,14 @@ def write_stamp(h5f, created_by):
   '''Stamp an open HDF5 file as written against the loaded openwater-core.
 
   The stamp says which build's model descriptions the file is laid out for.
-  Failing to stamp is logged and otherwise ignored: the library may not be
-  loadable where the file is being written, and that shouldn't stop the write.
+  Failing to stamp is logged and otherwise ignored: the build may not be
+  identifiable where the file is being written, and that shouldn't stop the
+  write.
   '''
-  from . import lib
   try:
-    h5f.attrs[VERSION_ATTR] = lib.get_core_version()
-    h5f.attrs[SIGNATURE_ATTR] = lib.get_core_signature_hash()
+    version, signature = current_core()
+    h5f.attrs[VERSION_ATTR] = version
+    h5f.attrs[SIGNATURE_ATTR] = signature
     h5f.attrs[CREATED_TIMESTAMP_ATTR] = datetime.utcnow().isoformat()
     h5f.attrs[CREATED_BY_ATTR] = created_by
   except Exception as e:
