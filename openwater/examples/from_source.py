@@ -1263,7 +1263,12 @@ def build_main(builder,model,timeperiod,openwater=None,existing=False,run=False,
 
   source = os.path.abspath(os.path.join(kwargs.get('extractedfiles','.'),model))
 
-  model_obj, meta, network = builder(source,existing=model_file)
+  builder_args = {}
+  if timeperiod is not None:
+    # Without this the builder detects its own period, and input time series won't match --timeperiod
+    builder_args['time_period'] = timeperiod
+
+  model_obj, meta, network = builder(source,existing=model_file,**builder_args)
 
   # Veneer doesn't report the Source project CRS, so the builder can't know it.
   # Declaring it here georeferences the network GeoJSON files without moving any coordinates.
