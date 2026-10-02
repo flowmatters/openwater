@@ -233,6 +233,34 @@ class TestClip:
             assert 'MockRR' in f['MODELS']
             assert 'MockRouting' in f['MODELS']
 
+    def test_clip_keeps_the_stamp_and_variable_names(self, model_hdf5, tmp_path):
+        """A clipped model keeps the layout, and so the metadata, of its source."""
+        from openwater import stamps
+        from openwater.template import ModelFile
+
+        with h5py.File(model_hdf5, 'a') as f:
+            f.attrs['openwater_version'] = '1.0.1+2939cdc.74cdc5ba'
+            f.attrs['signature_hash'] = '74cdc5ba'
+            stamps.set_variable_names(f['MODELS']['MockRR']['inputs'], ['rainfall', 'pet'])
+            stamps.set_variable_names(f['MODELS']['MockRR']['states'], ['store'])
+
+        dest = str(tmp_path / 'clipped.h5')
+        mf = ModelFile(model_hdf5)
+        try:
+            clip(mf, dest, [('MockRouting', 0)])
+        finally:
+            mf.close()
+
+        with h5py.File(dest, 'r') as f:
+            stamp = stamps.read_stamp(f)
+            assert stamp['openwater_version'] == '1.0.1+2939cdc.74cdc5ba'
+            assert stamp['signature_hash'] == '74cdc5ba'
+            rr = f['MODELS']['MockRR']
+            assert stamps.variable_names(rr['inputs']) == ['rainfall', 'pet']
+            assert stamps.variable_names(rr['states']) == ['store']
+            # Nothing is invented for a dataset the source didn't name.
+            assert stamps.variable_names(f['MODELS']['MockRouting']['inputs']) is None
+
     def test_clip_preserves_timeperiod(self, model_file, tmp_path):
         dest = str(tmp_path / 'clipped.h5')
         clip(model_file, dest, [('MockRouting', 0)])

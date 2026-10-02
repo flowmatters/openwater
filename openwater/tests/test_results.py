@@ -295,18 +295,35 @@ class TestAllTimeSeries:
 
 
 class TestVariableCountCheck:
-    def test_warns_when_results_have_more_variables_than_the_model_description(self, tmp_path, caplog):
+    """Results that don't name their variables are read by position."""
+
+    def _results_with_two_outputs(self, tmp_path):
         model_path = str(tmp_path / 'model.h5')
         results_path = str(tmp_path / 'outputs.h5')
         write_model_h5(model_path, DATES)
         with h5py.File(results_path, 'w') as f:
             # Written by a build where DummyModel had two outputs
             f.create_dataset('/MODELS/DummyModel/outputs', data=np.ones((4, 2, len(DATES))))
-        r = OpenwaterResults(model_path, results_path)
+        return model_path, results_path
+
+    def test_raises_when_results_have_more_variables_than_the_model_description(self, tmp_path):
+        r = OpenwaterResults(*self._results_with_two_outputs(tmp_path))
+        try:
+            with pytest.raises(results_mod.VariableMismatchError) as e:
+                r.time_series('DummyModel', 'runoff', 'catchment', hru='h1')
+            assert 'has 2 variables, but the model description has 1' in str(e.value)
+            assert 'allow_variable_mismatch=True' in str(e.value)
+        finally:
+            r.close()
+
+    def test_mismatch_can_be_overridden_and_then_warns(self, tmp_path, caplog):
+        r = OpenwaterResults(*self._results_with_two_outputs(tmp_path),
+                             allow_variable_mismatch=True)
         try:
             with caplog.at_level('WARNING', logger='openwater.results'):
-                r.time_series('DummyModel', 'runoff', 'catchment', hru='h1')
+                ts = r.time_series('DummyModel', 'runoff', 'catchment', hru='h1')
             assert 'has 2 variables, but the model description has 1' in caplog.text
+            assert ts.shape[0] == len(DATES)
         finally:
             r.close()
 

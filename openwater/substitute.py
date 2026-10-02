@@ -20,6 +20,7 @@ import pandas as pd
 import h5py as h5
 
 from openwater import nodes as node_types
+from openwater import stamps
 from .clip import (
     identify_models_to_keep,
     renumber_links,
@@ -414,6 +415,9 @@ def substitute(model_file, prior_results, dest_fn,
             new_mod.create_dataset('LINKS', data=np.array(new_link_vals, dtype=np.uint32))
         else:
             new_mod.create_dataset('LINKS', data=np.zeros((0, 10), dtype=np.uint32))
+
+        # The new file keeps the layout of the file it was derived from.
+        stamps.copy_model_metadata(fp, new_mod)
 
     return dest_fn
 

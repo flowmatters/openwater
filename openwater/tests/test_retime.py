@@ -724,3 +724,24 @@ def test_input_summary_skips_models_without_stored_inputs(tmp_path):
     assert summary.empty
     assert list(summary.columns) == ['model', 'input', 'cells', 'link_fed',
                                      'active_cells', 'time_varying_cells']
+
+
+def test_retime_keeps_the_stamp_and_variable_names(tmp_path):
+    '''Retiming rebuilds the inputs dataset; its metadata has to survive that.'''
+    from openwater import stamps
+
+    old_period = pd.date_range('2000-01-01', periods=4, freq='D')
+    path = _write_model_file(_model_path(tmp_path), old_period, np.ones((2, 2, 4)))
+    with h5py.File(path, 'a') as f:
+        f.attrs['openwater_version'] = '1.0.1+2939cdc.74cdc5ba'
+        f.attrs['signature_hash'] = '74cdc5ba'
+        stamps.set_variable_names(f['MODELS'][MODEL]['inputs'], INPUTS)
+
+    mf = ModelFile(path)
+    mf.retime(pd.date_range('2000-01-01', periods=6, freq='D'), fill_rules=FillRules(default=0.0))
+    mf.close()
+
+    with h5py.File(path, 'r') as f:
+        assert f['MODELS'][MODEL]['inputs'].shape == (2, 2, 6)
+        assert stamps.variable_names(f['MODELS'][MODEL]['inputs']) == INPUTS
+        assert stamps.read_stamp(f)['signature_hash'] == '74cdc5ba'

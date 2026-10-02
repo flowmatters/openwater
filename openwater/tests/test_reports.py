@@ -52,7 +52,8 @@ def write_results_file(path, runs, timesteps, codes, severities, args, counts,
     with h5py.File(path, 'w') as f:
         reports = f.create_group('REPORTS')
         if signature is not None:
-            reports.create_dataset('signature', data=[np.bytes_(signature)], dtype='S8')
+            # ow-sim records the signature of the model file it ran.
+            f.attrs['model_signature_hash'] = signature
 
         g = reports.create_group('StorageRouting')
         g.create_dataset('names', data=[np.bytes_(n) for n in names],

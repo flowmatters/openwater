@@ -479,7 +479,7 @@ def use_latest(dest: Optional[str] = None, install: bool = False,
 # ── model file inspection ───────────────────────────────────────────
 
 class ModelFileVersion(NamedTuple):
-    """The openwater-core build that wrote a model file.
+    """The openwater-core build that wrote a model or results file.
 
     Unpacks as ``(version, signature_hash)``.
     """
@@ -487,15 +487,6 @@ class ModelFileVersion(NamedTuple):
     signature_hash: Optional[str]
     created_by: Optional[str] = None
     created_timestamp: Optional[str] = None
-
-
-def _decode_attr(value) -> Optional[str]:
-    """Normalise an HDF5 attribute to a plain str (or None)."""
-    if value is None:
-        return None
-    if isinstance(value, bytes):
-        return value.decode('utf-8')
-    return str(value)
 
 
 def model_file_version(model_fn: str) -> ModelFileVersion:
@@ -506,8 +497,13 @@ def model_file_version(model_fn: str) -> ModelFileVersion:
     the HDF5 file. Files written before version stamping was introduced will
     have None for the corresponding fields.
 
+    ow-sim stamps the results files it writes with the same attributes, so
+    this (and find_installed_for_model / install_for_model / use_for_model,
+    which build on it) also accepts a results file: the version reported is then the build that
+    produced the results.
+
     Parameters:
-        model_fn: Path to an openwater model (HDF5) file
+        model_fn: Path to an openwater model or results (HDF5) file
 
     Returns:
         ModelFileVersion(version, signature_hash, created_by, created_timestamp).
@@ -517,11 +513,11 @@ def model_file_version(model_fn: str) -> ModelFileVersion:
         OSError: If the file cannot be opened as HDF5.
     """
     import h5py
+    from . import stamps
 
     with h5py.File(model_fn, 'r') as f:
-        attrs = {k: _decode_attr(f.attrs.get(k))
-                 for k in ('openwater_version', 'signature_hash',
-                           'created_by', 'created_timestamp')}
+        stamp = stamps.read_stamp(f)
+    attrs = {k: stamp.get(k) for k in stamps.STAMP_ATTRS}
 
     version = attrs['openwater_version']
     if version == 'unknown':

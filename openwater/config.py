@@ -4,6 +4,8 @@ import pandas as pd
 import string
 from .array_params import get_parameter_locations, param_starts
 from .nodes import create_indexed_parameter_table
+from . import nodes as node_types
+from . import stamps
 import logging
 logger = logging.getLogger(__name__)
 
@@ -387,7 +389,10 @@ def _matches_constraints(constraint_tags,present_tags,resolver=None):
 def initialise_model_inputs(model,model_grp,n_cells,n_inputs,n_timesteps):
     if not 'inputs' in model_grp:
         logger.info('Initialising model inputs: %s (%d x %d x %d',model,n_cells,n_inputs,n_timesteps)
-        model_grp.create_dataset('inputs',shape=(n_cells,n_inputs,n_timesteps),dtype=np.float64,fillvalue=0)
+        ds = model_grp.create_dataset('inputs',shape=(n_cells,n_inputs,n_timesteps),dtype=np.float64,fillvalue=0)
+        desc = getattr(node_types,model,None)
+        if desc is not None:
+            stamps.set_variable_names(ds,node_types._flux_names(desc.description['Inputs']))
 
 class Parameteriser(object):
     def __init__(self):

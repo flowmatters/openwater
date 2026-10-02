@@ -1,4 +1,5 @@
 import h5py
+from . import stamps
 from .template import ModelFile, _run
 from openwater.results import OpenwaterSplitResults
 from typing import Sequence, Tuple
@@ -177,6 +178,12 @@ def split_model(orig_model: str,
       for ix, ((start_idx,end_idx),ts_dest_grp) in enumerate(zip(input_windows,inputs_models)):
         logger.debug(f'Input window {ix}: [{start_idx}:{end_idx}]')
         ts_dest_grp[model]['inputs'] = grp['inputs'][:,:,start_idx:end_idx]
+
+    # Every file the model was split into keeps the original's stamp and
+    # variable names. Group.copy brings attributes across with the parameters
+    # and states; the inputs were rebuilt from slices and need them put back.
+    for dest in [structure_f,params_models,init_states_models]+inputs_models:
+      stamps.copy_model_metadata(input_f,dest.file)
   finally:
     closed = set()
     for fp in [input_f,structure_f,params_models,init_states_models]+inputs_models:

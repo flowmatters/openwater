@@ -2,6 +2,7 @@ import logging
 from openwater import discovery, template as owt
 from openwater.results import OpenwaterResults
 from openwater import nodes as node_types
+from openwater import stamps
 import pandas as pd
 import h5py as h5
 import numpy as np
@@ -371,6 +372,9 @@ def clip(model,dest_fn,end_nodes):
       new_link_vals[mod_col] = new_link_vals[mod_col].apply(lambda m: mod_order.index(m))
 
   new_mod.create_dataset('LINKS',data=np.array(new_link_vals,dtype=np.uint32))
+
+  # The clipped file keeps the layout of the file it was cut from.
+  stamps.copy_model_metadata(fp,new_mod)
 
   new_mod.close()
 

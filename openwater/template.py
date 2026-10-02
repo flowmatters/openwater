@@ -11,6 +11,7 @@ import pandas as pd
 import networkx as nx
 from functools import reduce
 from . import nodes as node_types
+from . import stamps
 from .timing import init_timer, report_time, close_timer
 from itertools import chain
 from .array_params import get_parameter_locations
@@ -832,19 +833,11 @@ class ModelGraph(object):
 
         # Add version metadata
         try:
-            core_version = lib.get_core_version()
-            signature_hash = lib.get_core_signature_hash()
-
-            h5f.attrs['openwater_version'] = core_version
-            h5f.attrs['signature_hash'] = signature_hash
-            h5f.attrs['created_timestamp'] = datetime.utcnow().isoformat()
-            try:
-                from . import __version__
-                h5f.attrs['created_by'] = f"openwater-py {__version__}"
-            except:
-                h5f.attrs['created_by'] = "openwater-py (version unknown)"
-        except Exception as e:
-            logger.warning(f"Could not write version metadata: {e}")
+            from . import __version__
+            created_by = f"openwater-py {__version__}"
+        except:
+            created_by = "openwater-py (version unknown)"
+        stamps.write_stamp(h5f, created_by)
 
         # Persisted quasi-dimensions (no-op if none registered with persist=True).
         self._quasi_dims.write_to_h5(meta)
@@ -964,6 +957,8 @@ class ModelGraph(object):
             n_cells = len(model_nodes) # instances.size
             # Init states....
             model_grp.create_dataset('states',shape=(n_cells,n_states),dtype=np.float64,fillvalue=0)
+            if desc is not None:
+                stamps.set_variable_names(model_grp['states'],desc['States'])
 
             model_grp.create_dataset('parameters',shape=(n_params,n_cells),dtype=np.float64,fillvalue=0)
 
@@ -983,6 +978,15 @@ class ModelGraph(object):
                 )
                 self._parameteriser.parameterise(model_meta,model_grp,instances,full_dims,node_dict,nodes_df,resolver=resolver)
                 close_timer()
+
+            # Named last: parameterisers resize the parameters dataset to make
+            # room for table parameters, and create the inputs dataset.
+            if desc is not None:
+                param_names = stamps.parameter_row_names(desc,model_grp['parameters'])
+                if param_names is not None:
+                    stamps.set_variable_names(model_grp['parameters'],param_names)
+                if 'inputs' in model_grp:
+                    stamps.set_variable_names(model_grp['inputs'],node_types._flux_names(desc['Inputs']))
             close_timer()
 
     def gen_index(self,node):
@@ -1519,8 +1523,11 @@ class ModelFile(object):
                 var_names = getattr(node_types,m).description['Inputs']
                 new_arr = _config.build_resized_input_array(old_arr,src_for_new,var_names,m,
                                                             fill_rules,new_period=new_period)
+                input_names = stamps.variable_names(model_grp['inputs'])
                 del model_grp['inputs']
                 model_grp.create_dataset('inputs',data=new_arr,dtype=np.float64,fillvalue=0)
+                if input_names is not None:
+                    stamps.set_variable_names(model_grp['inputs'],input_names)
 
             meta = self._h5f['META']
             if 'timeperiod' in meta:

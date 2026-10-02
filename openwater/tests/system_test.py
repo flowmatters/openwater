@@ -131,12 +131,42 @@ def test_split_ow_sim():
 
     res = OpenwaterResults(MODEL_FN,RESULTS_FN)
     check_result(res, base_rain)
+    check_stamps(res)
 
 def test_python_lib_model():
     base_rains = np.arange(10,dtype='float64')
     expected = base_rains
     result = owl.RunoffCoefficient(rainfall=base_rains, coeff=1.0)[0][0]
     assert_array_equal(result, expected, 'RunoffCoefficient outputs')
+
+def check_stamps(res):
+    '''Model and results files say which build wrote them and name their variables.'''
+    from openwater import stamps
+
+    model_stamp = stamps.read_stamp(res.model)
+    assert model_stamp['signature_hash'] == owl.get_core_signature_hash()
+    assert model_stamp['openwater_version'] == owl.get_core_version()
+
+    results_stamp = res.version()
+    assert results_stamp['signature_hash'] == owl.get_core_signature_hash()
+    assert results_stamp['openwater_version'] == owl.get_core_version()
+    assert results_stamp['created_by'] == 'ow-sim'
+    assert results_stamp['created_timestamp']
+    # Results are traceable to the model file they were produced from
+    assert results_stamp['model_signature_hash'] == model_stamp['signature_hash']
+    assert results_stamp['model_openwater_version'] == model_stamp['openwater_version']
+
+    for model in ['RunoffCoefficient','Sum']:
+        description = getattr(node_types,model).description
+        outputs = res.results['MODELS'][model]['outputs']
+        assert stamps.variable_names(outputs) == node_types._flux_names(description['Outputs'])
+        states = res.results['MODELS'][model]['states']
+        assert stamps.variable_names(states) == list(description['States'])
+
+    model_grp = res.model['MODELS']['RunoffCoefficient']
+    assert stamps.variable_names(model_grp['inputs']) == ['rainfall']
+    assert stamps.variable_names(model_grp['parameters']) == ['coeff']
+    assert stamps.variable_names(model_grp['states']) == []
 
 def check_result(res, base_rain):
     models = res.models()

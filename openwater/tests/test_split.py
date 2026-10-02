@@ -192,3 +192,36 @@ class TestSplitModel:
             s = f['MODELS']['ModelA']['states'][...]
             assert s.shape == (1, 1)
             assert s[0, 0] == 0.0
+
+    def test_split_files_keep_the_stamp_and_variable_names(self, tmp_path):
+        """Every file a model is split into keeps the original's metadata."""
+        from openwater import stamps
+
+        orig = str(tmp_path / 'orig.h5')
+        _build_simple_model_h5(orig, n_timesteps=100)
+        with h5py.File(orig, 'a') as f:
+            f.attrs['openwater_version'] = '1.0.1+2939cdc.74cdc5ba'
+            f.attrs['signature_hash'] = '74cdc5ba'
+            grp = f['MODELS']['ModelA']
+            stamps.set_variable_names(grp['inputs'], ['rainfall'])
+            stamps.set_variable_names(grp['parameters'], ['coeff'])
+            stamps.set_variable_names(grp['states'], ['store'])
+
+        structure = str(tmp_path / 'structure.h5')
+        params = str(tmp_path / 'params.h5')
+        states = str(tmp_path / 'states.h5')
+        split_model(orig, structure, parameters=params, init_states=states,
+                    inputs=str(tmp_path / 'inputs.h5'), input_windows=[50])
+
+        expected_names = {
+            params: ('parameters', ['coeff']),
+            states: ('states', ['store']),
+            str(tmp_path / 'inputs-0.h5'): ('inputs', ['rainfall']),
+            str(tmp_path / 'inputs-1.h5'): ('inputs', ['rainfall']),
+        }
+        for fn in [structure] + list(expected_names):
+            with h5py.File(fn, 'r') as f:
+                assert stamps.read_stamp(f)['signature_hash'] == '74cdc5ba', fn
+                if fn in expected_names:
+                    kind, names = expected_names[fn]
+                    assert stamps.variable_names(f['MODELS']['ModelA'][kind]) == names, fn

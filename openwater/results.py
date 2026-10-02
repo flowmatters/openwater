@@ -1,6 +1,7 @@
 
 from typing import List
 from . import nodes as node_types
+from . import stamps
 import pandas as pd
 import numpy as np
 import re
@@ -211,14 +212,34 @@ def _render_report(template, args, n_args):
   return message
 
 
+class VariableMismatchError(Exception):
+  '''A results file's variables can't be matched to the loaded model descriptions.'''
+
+
+# (results signature, library signature) pairs already warned about, so that
+# opening the many files of a split run says it once.
+_warned_signatures = set()
+
+
 class OpenwaterResults(object):
-  def  __init__(self,model,res_file,time_period=None,inputs=None):
+  def  __init__(self,model,res_file,time_period=None,inputs=None,allow_variable_mismatch=False):
+    '''
+    Open the results of a model run.
+
+    allow_variable_mismatch: Results files written before variable names were
+      recorded are read by position, against the model descriptions of the
+      loaded openwater-core. When a file has a different number of variables
+      than the loaded description, positions can't be trusted and reading
+      raises VariableMismatchError. Pass True to read by position anyway.
+    '''
     self.model = _open_h5(model)
     self.results = _open_h5(res_file)
     if inputs is None:
       self.inputs = self.model
     else:
       self.inputs = _open_h5(inputs)
+    self.allow_variable_mismatch = allow_variable_mismatch
+    self._check_stamp()
 
     tp = self._read_time_period()
     if tp is not None and time_period is not None:
@@ -330,34 +351,134 @@ class OpenwaterResults(object):
       vals = list(self.model['/DIMENSIONS'].keys())
       return vals
 
-  def _retrieve_all(self,model,variable):
-    from .nodes import _flux_names
-    desc = getattr(node_types,model)
-    input_names = _flux_names(desc.description['Inputs'])
-    output_names = _flux_names(desc.description['Outputs'])
-    is_input = variable in input_names
+  def version(self):
+    '''The version stamp ow-sim wrote to the results file, as a dict.
 
+    Keys are ``openwater_version``, ``signature_hash``, ``created_by`` and
+    ``created_timestamp`` for the build that produced the results, and
+    ``model_openwater_version`` and ``model_signature_hash`` for the model
+    file they were produced from. Empty for results written before stamping.
+    '''
+    return stamps.read_stamp(self.results)
+
+  def _check_stamp(self):
+    '''Warn, once, when the results were written by a build with different model interfaces.
+
+    Results that record their variable names are still read correctly. Older
+    ones are read by position against the loaded library's descriptions, and
+    the stamp is the only sign that those positions may have moved.
+    '''
+    stamp = stamps.read_stamp(self.results)
+    file_signature = stamp.get(stamps.SIGNATURE_ATTR)
+    if file_signature in (None, 'unknown'):
+      return
+
+    try:
+      from . import lib
+      current_signature = lib.get_core_signature_hash()
+      current_version = lib.get_core_version()
+    except Exception as e:
+      logger.debug('Could not check results version: %s', e)
+      return
+
+    if current_signature in (None, 'unknown') or current_signature == file_signature:
+      return
+
+    key = (file_signature, current_signature)
+    if key in _warned_signatures:
+      return
+    _warned_signatures.add(key)
+
+    filename = getattr(self.results, 'filename', 'the results file')
+    logger.warning(
+      'Results signature mismatch!\n'
+      '  Results written by: %s\n'
+      '  Current version: %s\n'
+      '  Model variables may have been added, removed or reordered between the two. '
+      'Variables are read by name where the results file records them, and by position '
+      'against the current version otherwise. To read with the matching release, use '
+      "openwater.releases.use_for_model('%s', install=True).",
+      stamp.get(stamps.VERSION_ATTR, file_signature), current_version, filename)
+
+  def _variable_datasets(self,model):
+    '''The datasets a model's variables can come from, as {kind: dataset}.
+
+    Inputs are read from the results file when ow-sim was asked to write them
+    there, and from the inputs (or model) file otherwise.
+    '''
     grp_name = '/MODELS/%s'%model
     out_grp = self.results[grp_name]
 
-    if is_input:
-      var_idx = input_names.index(variable)
-      if 'inputs' in out_grp:
-        dataset = out_grp['inputs']
-      else:
-        in_grp = self.inputs[grp_name]
-        dataset = in_grp['inputs']
-    else:
-      var_idx = output_names.index(variable)
-      dataset = out_grp['outputs']
+    datasets = {}
+    if 'outputs' in out_grp:
+      datasets['outputs'] = out_grp['outputs']
+    if 'inputs' in out_grp:
+      datasets['inputs'] = out_grp['inputs']
+    elif grp_name in self.inputs and 'inputs' in self.inputs[grp_name]:
+      datasets['inputs'] = self.inputs[grp_name]['inputs']
+    return datasets
 
-    expected = len(input_names) if is_input else len(output_names)
-    if dataset.shape[1] != expected:
-      logger.warning('%s %s in results file has %d variables, but the model description has %d (%s). '
-                     'The file was probably written by a different openwater-core build, so %s may be read from the wrong position.',
-                     model, 'inputs' if is_input else 'outputs', dataset.shape[1], expected,
-                     ', '.join(input_names if is_input else output_names), variable)
+  def _described_variables(self,model):
+    '''Variable names from the loaded openwater-core, as {kind: names}, or {} if it doesn't know the model.'''
+    from .nodes import _flux_names
+    desc = getattr(node_types,model,None)
+    if desc is None:
+      return {}
+    return {
+      'inputs': _flux_names(desc.description['Inputs']),
+      'outputs': _flux_names(desc.description['Outputs']),
+    }
 
+  def _locate_variable(self,model,variable):
+    '''Find the dataset and position holding a variable.
+
+    Names recorded in the file win: they say what is actually stored where,
+    whichever build wrote it. A dataset without names is read by position
+    against the loaded library's description, which is only safe when that
+    description still matches the file.
+    '''
+    datasets = self._variable_datasets(model)
+    recorded = {kind: stamps.variable_names(ds,kind) for kind,ds in datasets.items()}
+
+    for kind in ['inputs','outputs']:
+      names = recorded.get(kind)
+      if names is not None and variable in names:
+        return datasets[kind], names.index(variable)
+
+    described = self._described_variables(model)
+    for kind in ['inputs','outputs']:
+      if variable not in described.get(kind,[]):
+        continue
+      if kind not in datasets:
+        raise Exception('No %s recorded for %s'%(kind,model))
+      if recorded.get(kind) is not None:
+        # The file says what it holds, and this variable isn't in it.
+        continue
+
+      names = described[kind]
+      dataset = datasets[kind]
+      if dataset.shape[1] != len(names):
+        message = ('%s %s in %s has %d variables, but the model description has %d (%s). '
+                   'The file was probably written by a different openwater-core build, so %s '
+                   'would be read from the wrong position.'%(
+                     model, kind, getattr(dataset.file,'filename','the file'), dataset.shape[1],
+                     len(names), ', '.join(names), variable))
+        if not self.allow_variable_mismatch:
+          raise VariableMismatchError(
+            message + ' Activate the release that wrote the file '
+            '(openwater.releases.use_for_model), or open the results with '
+            'allow_variable_mismatch=True to read by position anyway.')
+        logger.warning(message)
+      return dataset, names.index(variable)
+
+    available = []
+    for kind in ['inputs','outputs']:
+      names = recorded.get(kind)
+      available += names if names is not None else described.get(kind,[])
+    raise Exception('Unknown variable %s for %s. Available: %s'%(variable,model,', '.join(available)))
+
+  def _retrieve_all(self,model,variable):
+    dataset, var_idx = self._locate_variable(model,variable)
     data = dataset[:,var_idx,:]
     assert len(data.shape)==2
     return data
@@ -650,12 +771,20 @@ class OpenwaterResults(object):
     return list(self.model['/MODELS'].keys())
 
   def variables_for(self,model) -> List[str]:
-    from .nodes import _flux_names
-    if hasattr(model,'name'):
-        desc = model
-    else:
-        desc = getattr(node_types,model)
-    return _flux_names(desc.description['Inputs']) + _flux_names(desc.description['Outputs'])
+    '''The input and output variables available for a model.
+
+    Taken from the names recorded in the files where there are any, and from
+    the loaded openwater-core's description of the model otherwise.
+    '''
+    model = self._model_name(model)
+    described = self._described_variables(model)
+    datasets = self._variable_datasets(model) if '/MODELS/%s'%model in self.results else {}
+
+    result = []
+    for kind in ['inputs','outputs']:
+      names = stamps.variable_names(datasets[kind],kind) if kind in datasets else None
+      result += names if names is not None else described.get(kind,[])
+    return result
 
   def dims_for_model(self,model) -> List[str]:
     model = self._model_name(model)
@@ -670,8 +799,6 @@ class OpenwaterResults(object):
     if REPORTS_GROUP not in self.results:
       return []
     group = self.results[REPORTS_GROUP]
-    # Per-model entries are groups; the signature stamp beside them is a
-    # dataset, and only groups have keys().
     return sorted(name for name in group if hasattr(group[name], 'keys'))
 
   def _check_report_signature(self):
@@ -682,12 +809,13 @@ class OpenwaterResults(object):
     silently re-locate or re-date every report. A wrong catchment name is worse
     than no catchment name, so a mismatch raises.
     '''
-    stamp_path = '%s/signature'%REPORTS_GROUP
-    if stamp_path not in self.results:
+    stamped = stamps.read_stamp(self.results).get(stamps.MODEL_SIGNATURE_ATTR)
+    if stamped is None:
+      # Unstamped results, or produced from an unstamped model file: there is
+      # nothing to compare.
       return
 
-    stamped = _decode(self.results[stamp_path][0])
-    file_signature = self.model.attrs.get('signature_hash')
+    file_signature = self.model.attrs.get(stamps.SIGNATURE_ATTR)
     if file_signature is None:
       logger.warning('Results carry a model signature (%s) but the model file records none; '
                      'cannot confirm the reports belong to this model.', stamped)
@@ -696,7 +824,7 @@ class OpenwaterResults(object):
     file_signature = _decode(file_signature)
     if file_signature != stamped:
       raise Exception(
-        'Model reports were produced against signature %s, but this model file has %s. '
+        'Model reports were produced from a model file with signature %s, but this model file has %s. '
         'Run indices and timesteps would be mapped to the wrong places and dates. '
         'Pass check_signature=False to read them anyway.'%(stamped, file_signature))
 
