@@ -1637,7 +1637,19 @@ def _run(time_period,model_fn=None,results_fn=None,**kwargs):
                 end_stream = True
                 sleep(0.05)
 
-    assert proc.returncode==0
+    if proc.returncode != 0:
+        # ow-sim exits non-zero when a model raised an error-severity report,
+        # which is deliberate: it is how a batch or CI run notices that a model
+        # produced a wrong-but-complete answer. The results file has still been
+        # written, so point at the reports rather than just asserting.
+        tail = ''.join(err[-10:]).strip()
+        raise Exception(
+            'ow-sim exited with status %d.\n%s\n\n'
+            'If the run finished but models reported errors, the results were still '
+            'written: open them with OpenwaterResults(model_fn, results_fn) and call '
+            '.reports() to see what was raised. Pass reports_fatal="off" to run() to '
+            'let such a run succeed.'%(proc.returncode, tail))
+
     return OpenwaterResults(model_fn,results_fn,time_period=time_period)
 
 def run_simulation(model,output='model_outputs.h5',overwrite=False):

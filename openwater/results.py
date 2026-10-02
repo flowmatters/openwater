@@ -170,6 +170,47 @@ def _index_run_map(run_map, slices):
             arrays.append(np.array([sl]))
     return run_map[np.ix_(*arrays)]
 
+# Model reporting. Model kernels emit a report code plus up to three numbers,
+# with no idea which subcatchment or date they represent; the translation back
+# to places and dates happens here, using the model file's metadata. See
+# openwater-core/docs/MODEL_REPORTING.md.
+
+REPORTS_GROUP = '/REPORTS'
+MAX_REPORT_ARGS = 3
+
+SEVERITY_LABELS = {0: 'none', 1: 'warning', 2: 'error'}
+SEVERITY_VALUES = {label: value for value, label in SEVERITY_LABELS.items()}
+
+REPORT_COLUMNS = ['date', 'timestep', 'model', 'severity', 'code', 'report', 'message']
+REPORT_COUNT_COLUMNS = ['model', 'severity', 'code', 'report', 'occurrences']
+
+
+def _decode(value):
+  return value.decode('utf-8') if hasattr(value, 'decode') else value
+
+
+def _severity_threshold(severity):
+  '''Lowest severity value to include. None or "all" means everything.'''
+  if severity is None or severity == 'all':
+    return 0
+  if severity in SEVERITY_VALUES:
+    return SEVERITY_VALUES[severity]
+  raise ValueError('Unknown severity %s. Expected one of %s'
+                   % (severity, sorted(SEVERITY_VALUES) + ['all']))
+
+
+def _render_report(template, args, n_args):
+  '''Substitute {0}, {1} and {2} in a report template.
+
+  Numbers are formatted the way the engine formats them, so a message reads the
+  same whether it came from ow-single or from a results file.
+  '''
+  message = template
+  for i in range(min(int(n_args), MAX_REPORT_ARGS)):
+    message = message.replace('{%d}' % i, '%.6g' % args[i])
+  return message
+
+
 class OpenwaterResults(object):
   def  __init__(self,model,res_file,time_period=None,inputs=None):
     self.model = _open_h5(model)
@@ -623,6 +664,247 @@ class OpenwaterResults(object):
         raise Exception('Missing model type: %s'%model)
     return [d.decode('utf-8') for d in self.model[map_grp].attrs['DIMS']]
 
+  # --- model reports -------------------------------------------------------
+
+  def _reporting_models(self) -> List[str]:
+    if REPORTS_GROUP not in self.results:
+      return []
+    group = self.results[REPORTS_GROUP]
+    # Per-model entries are groups; the signature stamp beside them is a
+    # dataset, and only groups have keys().
+    return sorted(name for name in group if hasattr(group[name], 'keys'))
+
+  def _check_report_signature(self):
+    '''Reports are only meaningful against the model file that produced them.
+
+    Run indices and timesteps are bare integers: ``clip`` renumbers run indices
+    and ``ModelFile.retime`` rewrites ``META/timeperiod``, either of which would
+    silently re-locate or re-date every report. A wrong catchment name is worse
+    than no catchment name, so a mismatch raises.
+    '''
+    stamp_path = '%s/signature'%REPORTS_GROUP
+    if stamp_path not in self.results:
+      return
+
+    stamped = _decode(self.results[stamp_path][0])
+    file_signature = self.model.attrs.get('signature_hash')
+    if file_signature is None:
+      logger.warning('Results carry a model signature (%s) but the model file records none; '
+                     'cannot confirm the reports belong to this model.', stamped)
+      return
+
+    file_signature = _decode(file_signature)
+    if file_signature != stamped:
+      raise Exception(
+        'Model reports were produced against signature %s, but this model file has %s. '
+        'Run indices and timesteps would be mapped to the wrong places and dates. '
+        'Pass check_signature=False to read them anyway.'%(stamped, file_signature))
+
+  def _report_catalog(self, model):
+    '''The model's report catalogue, read from the results file.
+
+    Deliberately not read from the installed library: an old results file stays
+    readable against a newer build, which is why ow-sim writes it alongside the
+    reports.
+    '''
+    grp = self.results['%s/%s'%(REPORTS_GROUP, model)]
+    names = [_decode(n) for n in grp['names'][...]]
+    messages = [_decode(m) for m in grp['messages'][...]]
+    if 'code_severity' in grp:
+      severities = [int(s) for s in grp['code_severity'][...]]
+    else:
+      severities = [SEVERITY_VALUES['warning']] * len(names)
+    return names, messages, severities
+
+  def _inverse_run_map(self, model):
+    '''Map each global run index back to its position in every dimension.
+
+    Returns (dim_names, dim_labels, inverse) where inverse[run] is the tuple of
+    dimension indices for that run, or (None, None, None) when the model file
+    cannot say -- reports are still usable then, just without place names.
+    '''
+    try:
+      dim_names, dims, run_map = self._map_runs(model)
+    except Exception as e:
+      logger.warning('No run map for %s (%s); reports will not carry dimension labels.', model, e)
+      return None, None, None
+
+    run_map = np.asarray(run_map)
+    if run_map.size == 0:
+      return dim_names, dims, None
+
+    flat = run_map.ravel()
+    coords = np.stack(np.unravel_index(np.arange(flat.size), run_map.shape), axis=1)
+    inverse = np.full((int(flat.max()) + 1, run_map.ndim), -1, dtype=int)
+    valid = flat >= 0
+    inverse[flat[valid]] = coords[valid]
+    return dim_names, dims, inverse
+
+  def _dimension_columns(self, model, runs):
+    '''Dimension label columns for a set of run indices.'''
+    dim_names, dims, inverse = self._inverse_run_map(model)
+    if inverse is None or dim_names is None:
+      return {}
+
+    columns = {}
+    for axis, dim_name in enumerate(dim_names):
+      labels = dims[dim_name]
+      values = []
+      for run in runs:
+        if 0 <= run < len(inverse):
+          position = inverse[run][axis]
+          values.append(labels[position] if 0 <= position < len(labels) else None)
+        else:
+          values.append(None)
+      columns[dim_name] = values
+    return columns
+
+  def _dates_for(self, timesteps):
+    '''Dates for report timesteps. -1 means a configuration fault, which has
+    no timestep and must not be given one.'''
+    if self.time_period is None:
+      logger.warning('No time period available; reports will not carry dates.')
+      return [pd.NaT] * len(timesteps)
+
+    n = len(self.time_period)
+    return [self.time_period[t] if 0 <= t < n else pd.NaT for t in timesteps]
+
+  def _filter_by_dimensions(self, df, constraints):
+    for name, value in constraints.items():
+      if name not in df.columns:
+        # A model without this dimension cannot satisfy a constraint on it.
+        return df.iloc[0:0]
+      if _is_set_constraint(value):
+        df = df[df[name].isin(list(value))]
+      else:
+        df = df[df[name] == value]
+    return df
+
+  def reports(self, model=None, severity='warning', check_signature=True, **kwargs) -> pd.DataFrame:
+    '''Return the reports raised by models during the run, one row per record.
+
+    Model kernels report a code and a few numbers against a cell and a timestep;
+    this turns those into dates, place names and messages using the model file's
+    metadata.
+
+    Parameters:
+
+    * model - restrict to one model (name or node type); default all models
+    * severity - minimum severity to include: 'warning' (default), 'error', or
+      'all'
+    * check_signature - verify the reports were produced against this model
+      file. Turning this off can silently mis-attribute reports to the wrong
+      places and dates.
+    * **kwargs - filter by dimension, eg catchment='sc12'
+
+    Detail records are capped per model, cell and report code during the run, so
+    this shows *examples* of each condition. Use report_counts() for how often
+    each one actually occurred.
+    '''
+    threshold = _severity_threshold(severity)
+    if check_signature:
+      self._check_report_signature()
+
+    wanted = self._model_name(model) if model is not None else None
+    frames = []
+
+    for model_name in self._reporting_models():
+      if wanted is not None and model_name != wanted:
+        continue
+
+      grp = self.results['%s/%s'%(REPORTS_GROUP, model_name)]
+      if 'run' not in grp:
+        continue  # counts only: the model ran and reported nothing
+
+      names, messages, severities = self._report_catalog(model_name)
+      runs = [int(r) for r in grp['run'][...]]
+      timesteps = [int(t) for t in grp['timestep'][...]]
+      codes = [int(c) for c in grp['code'][...]]
+      record_severities = [int(s) for s in grp['severity'][...]]
+      args = np.asarray(grp['args'][...])
+
+      rendered = []
+      for i, code in enumerate(codes):
+        template = messages[code] if 0 <= code < len(messages) else ''
+        rendered.append(_render_report(template, args[i], MAX_REPORT_ARGS))
+
+      frame = pd.DataFrame({
+        'date': self._dates_for(timesteps),
+        'timestep': timesteps,
+        'model': model_name,
+        'severity': [SEVERITY_LABELS.get(s, str(s)) for s in record_severities],
+        'code': codes,
+        'report': [names[c] if 0 <= c < len(names) else str(c) for c in codes],
+        'message': rendered,
+        'run': runs,
+      })
+      frame = frame[[SEVERITY_VALUES.get(s, 0) >= threshold for s in frame['severity']]]
+
+      for dim_name, values in self._dimension_columns(model_name, list(frame['run'])).items():
+        frame[dim_name] = values
+
+      frames.append(frame.drop(columns=['run']))
+
+    return self._finalise_report_frame(frames, REPORT_COLUMNS, kwargs)
+
+  def report_counts(self, model=None, severity='warning', check_signature=True, **kwargs) -> pd.DataFrame:
+    '''Return how often each report was raised, per model, cell and code.
+
+    Unlike reports(), these counts are complete: they cover every occurrence,
+    including those whose detail record was dropped by the per-code cap. Rows
+    with no occurrences are omitted.
+    '''
+    threshold = _severity_threshold(severity)
+    if check_signature:
+      self._check_report_signature()
+
+    wanted = self._model_name(model) if model is not None else None
+    frames = []
+
+    for model_name in self._reporting_models():
+      if wanted is not None and model_name != wanted:
+        continue
+
+      grp = self.results['%s/%s'%(REPORTS_GROUP, model_name)]
+      if 'counts' not in grp:
+        continue
+
+      names, _, severities = self._report_catalog(model_name)
+      counts = np.asarray(grp['counts'][...])
+      if counts.size == 0:
+        continue
+
+      runs, codes = np.nonzero(counts)
+      if len(runs) == 0:
+        continue
+
+      frame = pd.DataFrame({
+        'model': model_name,
+        'severity': [SEVERITY_LABELS.get(severities[c], str(severities[c])) for c in codes],
+        'code': [int(c) for c in codes],
+        'report': [names[c] if c < len(names) else str(c) for c in codes],
+        'occurrences': [int(counts[r, c]) for r, c in zip(runs, codes)],
+        'run': [int(r) for r in runs],
+      })
+      frame = frame[[SEVERITY_VALUES.get(s, 0) >= threshold for s in frame['severity']]]
+
+      for dim_name, values in self._dimension_columns(model_name, list(frame['run'])).items():
+        frame[dim_name] = values
+
+      frames.append(frame.drop(columns=['run']))
+
+    return self._finalise_report_frame(frames, REPORT_COUNT_COLUMNS, kwargs)
+
+  def _finalise_report_frame(self, frames, base_columns, constraints):
+    if not frames:
+      return pd.DataFrame(columns=base_columns)
+
+    combined = pd.concat(frames, ignore_index=True, sort=False)
+    combined = self._filter_by_dimensions(combined, constraints)
+
+    ordered = base_columns + [c for c in combined.columns if c not in base_columns]
+    return combined[ordered].reset_index(drop=True)
+
 class OpenwaterSplitResults(object):
   def  __init__(self,splits,time_period=None):
     assert len(splits)
@@ -731,6 +1013,30 @@ class OpenwaterSplitResults(object):
 
   def dims_for_model(self,model) -> List[str]:
     return self._results[0].dims_for_model(model)
+
+  def reports(self,model=None,severity='warning',check_signature=True,**kwargs) -> pd.DataFrame:
+    '''Return the reports raised across every split. See OpenwaterResults.reports.'''
+    frames = [s.reports(model,severity,check_signature,**kwargs) for s in self._results]
+    frames = [f for f in frames if len(f)]
+    if not frames:
+      return pd.DataFrame(columns=REPORT_COLUMNS)
+    return pd.concat(frames,ignore_index=True,sort=False)
+
+  def report_counts(self,model=None,severity='warning',check_signature=True,**kwargs) -> pd.DataFrame:
+    '''Return report counts across every split. See OpenwaterResults.report_counts.
+
+    Splits partition the time axis, so a condition that spans a boundary is
+    counted in each split it occurs in; the counts are summed per model, code
+    and location.
+    '''
+    frames = [s.report_counts(model,severity,check_signature,**kwargs) for s in self._results]
+    frames = [f for f in frames if len(f)]
+    if not frames:
+      return pd.DataFrame(columns=REPORT_COUNT_COLUMNS)
+
+    combined = pd.concat(frames,ignore_index=True,sort=False)
+    grouping = [c for c in combined.columns if c != 'occurrences']
+    return combined.groupby(grouping,dropna=False,as_index=False)['occurrences'].sum()
 
 def open_split_results(model_fn,results_pattern,input_pattern=None,time_period=None):
   results_filenames = list(sorted(glob(results_pattern)))
